@@ -91,19 +91,20 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("Daily Cognitive Sync")
 if st.sidebar.button("🔄 Sync Uncertainties with Cloud", use_container_width=True):
     with st.spinner("Batching low-confidence alerts for Cloud AI analysis..."):
-        # Temporarily set key in env if provided
         if openai_key:
             import os
             os.environ["GEMINI_API_KEY"] = openai_key
             
-        synchronizer = BatchSynchronizer()
-        status = synchronizer.sync_pending_anomalies()
-        if status:
-            st.sidebar.success("Database memory calibrated successfully!")
-            # Force Streamlit to rerun and load new database journal entries
-            st.rerun()
-        else:
-            st.sidebar.info("No uncertainties pending cloud review.")
+        try:
+            synchronizer = BatchSynchronizer()
+            status = synchronizer.sync_pending_anomalies()
+            if status:
+                st.sidebar.success("Database memory calibrated successfully!")
+                st.rerun()
+            else:
+                st.sidebar.info("No uncertainties pending cloud review.")
+        except Exception as e:
+            st.sidebar.error(f"❌ Synchronizer Error: {e}")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -119,19 +120,31 @@ st.markdown("<p style='font-size: 1.15rem; color: #a0aec0;'>Local-Cloud Edge-Nod
 
 # Auto-initialize database with scientific pipeline if empty on Streamlit Cloud container
 conn = get_db_connection()
+db_error = None
 try:
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM forecast_history")
     count = cursor.fetchone()[0]
-except Exception:
+except Exception as e:
+    db_error = str(e)
     count = 0
 finally:
     conn.close()
 
+# Visual Debug Info in Sidebar for transparency
+st.sidebar.subheader("Diagnostic Engine Logs")
+st.sidebar.caption(f"📂 DB Path: `{DB_PATH}`")
+st.sidebar.caption(f"📊 Forecast Record Count: `{count}`")
+if db_error:
+    st.sidebar.error(f"❌ DB Integrity Error: {db_error}")
+
 if count == 0:
     st.toast("🚀 First run detected. Initializing scientific baseline engine...")
     from run_worker import run_scientific_drought_pipeline
-    run_scientific_drought_pipeline()
+    try:
+        run_scientific_drought_pipeline()
+    except Exception as e:
+        st.sidebar.error(f"❌ Pipeline Run Error: {e}")
 
 # Pull latest SQLite forecast data
 conn = get_db_connection()
