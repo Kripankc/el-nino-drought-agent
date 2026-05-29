@@ -262,11 +262,19 @@ else:
 
 col_c1, col_c2 = st.columns(2)
 with col_c1:
-    st.markdown("**Vegetation Stress (VCI) vs. Water Index (NDWI) Trend**")
-    st.line_chart(chart_df[["Sentinel-2 VCI (%)", "Sentinel-2 NDWI (Water)"]])
+    st.markdown("**🌿 Vegetation Stress (Sentinel-2 VCI %)**")
+    st.line_chart(chart_df["Sentinel-2 VCI (%)"])
 with col_c2:
-    st.markdown("**Met Forecast (SPEI-3) vs. Surface Temp (LST) Trend**")
-    st.line_chart(chart_df[["Forecast SPEI-3", "ERA5-Land LST (°C)"]])
+    st.markdown("💧 **Water Body Index (Sentinel-2 NDWI)**")
+    st.line_chart(chart_df["Sentinel-2 NDWI (Water)"])
+
+col_c3, col_c4 = st.columns(2)
+with col_c3:
+    st.markdown("🌧️ **Atmospheric Deficit Forecast (SPEI-3)**")
+    st.line_chart(chart_df["Forecast SPEI-3"])
+with col_c4:
+    st.markdown("🔥 **Land Surface Temperature (ERA5 LST °C)**")
+    st.line_chart(chart_df["ERA5-Land LST (°C)"])
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ----------------- JOURNAL SECTION -----------------
