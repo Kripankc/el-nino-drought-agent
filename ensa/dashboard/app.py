@@ -1,3 +1,8 @@
+import sys
+import os
+# Append the repository root to Python path to ensure clean imports on Streamlit Cloud
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import streamlit as st
 import folium
 from streamlit_folium import folium_static
