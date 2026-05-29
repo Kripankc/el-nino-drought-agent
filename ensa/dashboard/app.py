@@ -115,6 +115,22 @@ st.sidebar.markdown("""
 st.markdown("<h1 style='background: linear-gradient(90deg, #38ef7d 0%, #11998e 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
 st.markdown("<p style='font-size: 1.15rem; color: #a0aec0;'>Local-Cloud Edge-Node Biophysical Calibration & Forecasting Loop</p>", unsafe_allow_html=True)
 
+# Auto-initialize database with scientific pipeline if empty on Streamlit Cloud container
+conn = get_db_connection()
+try:
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM forecast_history")
+    count = cursor.fetchone()[0]
+except Exception:
+    count = 0
+finally:
+    conn.close()
+
+if count == 0:
+    st.toast("🚀 First run detected. Initializing scientific baseline engine...")
+    from run_worker import run_scientific_drought_pipeline
+    run_scientific_drought_pipeline()
+
 # Pull latest SQLite forecast data
 conn = get_db_connection()
 try:
@@ -130,7 +146,8 @@ try:
 except Exception:
     df_history = pd.DataFrame()
     df_journal = pd.DataFrame()
-conn.close()
+finally:
+    conn.close()
 
 if df_history.empty:
     st.warning("⚠️ No localized forecast logs found in SQLite database. Please run the ingestor pipeline first.")
