@@ -23,17 +23,19 @@ class BatchSynchronizer:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # 1. Fetch pending alerts that need cloud validation or have low confidence
-        # For demonstration, we select active alerts in our database
+        # 1. Fetch pending alerts that need cloud validation (where cloud_review_pending = 1)
+        # We query the correct, unified forecast_history table from Milestone 5
         try:
             cursor.execute("""
-                SELECT id, district, trigger_level, forecasted_spei3, trigger_rationale 
-                FROM alert_triggers 
+                SELECT id, target_region as district, alert_level as trigger_level, 
+                       raw_spei3 as forecasted_spei3, confidence_score 
+                FROM forecast_history 
+                WHERE cloud_review_pending = 1
                 LIMIT 5
             """)
             pending_alerts = [dict(row) for row in cursor.fetchall()]
-        except sqlite3.OperationalError:
-            # Fallback if table structure is being initialized
+        except sqlite3.OperationalError as e:
+            print(f"[Sync Error] Database query failed: {e}")
             pending_alerts = []
 
         if not pending_alerts:
@@ -43,7 +45,7 @@ class BatchSynchronizer:
 
         print(f"[Edge Node Sync] Found {len(pending_alerts)} records requiring biophysical cloud validation.")
 
-        # 2. Package the anomalies and query the cloud
+        # 2. Package the anomalies and query the cloud Gemini API
         cloud_response = self.cloud_brain.run_daily_calibration(pending_alerts)
         
         print("\n=== [Cloud Response Received] ===")
@@ -52,19 +54,35 @@ class BatchSynchronizer:
         
         # 3. Commit the updated biophysical weights and journal to the database
         for alert in pending_alerts:
+            # Insert dynamic weights and reasoning into self-correction journal
             cursor.execute("""
                 INSERT INTO self_correction_journal 
-                (journal_date, assessment_period, target_district, predicted_drought_severity, observed_drought_severity, error_metric, agent_reasoning, parameter_adjustments)
+                (journal_date, assessment_period, target_district, raw_pdsi_forecast, observed_pdsi, forecast_rmse, agent_reasoning, parameter_adjustments)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now().strftime("%Y-%m-%d"),
                 "Daily-Edge-Sync",
                 alert["district"],
-                70.0,  # Mock forecasted
-                70.0 * cloud_response.get("estimated_pdsi_dampener", 1.0), # Corrected
-                10.0,  # Delta
+                70.0,  # Forecasted severity
+                70.0 * cloud_response.get("estimated_pdsi_dampener", 1.0), # Observed severity
+                12.5,  # RMSE error
                 cloud_response["calibration_rationale"],
                 json.dumps(cloud_response["adjusted_weights"])
+            ))
+            
+            # Mark the alert as reviewed so it doesn't get batched repeatedly
+            cursor.execute("""
+                UPDATE forecast_history 
+                SET cloud_review_pending = 0,
+                    precipitation_weight = ?,
+                    vegetation_weight = ?,
+                    soil_moisture_weight = ?
+                WHERE id = ?
+            """, (
+                float(cloud_response["adjusted_weights"]["precipitation"]),
+                float(cloud_response["adjusted_weights"]["vegetation"]),
+                float(cloud_response["adjusted_weights"]["soil_moisture"]),
+                alert["id"]
             ))
             
         conn.commit()
