@@ -6,7 +6,14 @@ load_dotenv()
 # Project Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-DB_PATH = os.path.join(BASE_DIR, "ensa.db")
+
+# Serverless Compatibility: Use OS temp directory if root folder is read-only
+import tempfile
+if not os.access(BASE_DIR, os.W_OK) or os.getenv("STREAMLIT_SHARING_MODE"):
+    DB_PATH = os.path.join(tempfile.gettempdir(), "ensa.db")
+    print(f"[Config] Base directory read-only. Using temp database path: {DB_PATH}")
+else:
+    DB_PATH = os.path.join(BASE_DIR, "ensa.db")
 
 # Ensure Data Directories Exist
 os.makedirs(os.path.join(DATA_DIR, "boundaries"), exist_ok=True)
