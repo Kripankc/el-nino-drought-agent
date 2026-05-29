@@ -20,40 +20,36 @@ class BatchSynchronizer:
         queries the Cloud API, and commits the learned weights back to SQLite.
         If force_latest is True and no pending reviews are flagged, it recalibrates
         the most recent forecast record on-demand.
+        
+        Note: We let database exceptions propagate to the caller (app.py UI) 
+              so they can be diagnosed visually rather than silenced.
         """
         print("\n=== [Edge Node Sync] Starting Daily Cloud Sync Loop ===")
         conn = get_db_connection()
         cursor = conn.cursor()
 
         # 1. Fetch pending alerts that need cloud validation (where cloud_review_pending = 1)
-        try:
-            cursor.execute("""
-                SELECT id, target_region as district, alert_level as trigger_level, 
-                       raw_spei3 as forecasted_spei3, confidence_score 
-                FROM forecast_history 
-                WHERE cloud_review_pending = 1
-                LIMIT 5
-            """)
-            pending_alerts = [dict(row) for row in cursor.fetchall()]
-        except sqlite3.OperationalError as e:
-            print(f"[Sync Error] Database query failed: {e}")
-            pending_alerts = []
+        cursor.execute("""
+            SELECT id, target_region as district, alert_level as trigger_level, 
+                   raw_spei3 as forecasted_spei3, confidence_score 
+            FROM forecast_history 
+            WHERE cloud_review_pending = 1
+            LIMIT 5
+        """)
+        pending_alerts = [dict(row) for row in cursor.fetchall()]
 
         # Fallback / Force Calibration: If no records are explicitly pending review,
         # pull the latest forecast history entry anyway so the user can test on-demand!
         if not pending_alerts and force_latest:
             print("[Edge Node Sync] No pending alerts. Falling back to latest logged forecast for on-demand sync.")
-            try:
-                cursor.execute("""
-                    SELECT id, target_region as district, alert_level as trigger_level, 
-                           raw_spei3 as forecasted_spei3, confidence_score 
-                    FROM forecast_history 
-                    ORDER BY id DESC
-                    LIMIT 1
-                """)
-                pending_alerts = [dict(row) for row in cursor.fetchall()]
-            except sqlite3.OperationalError:
-                pending_alerts = []
+            cursor.execute("""
+                SELECT id, target_region as district, alert_level as trigger_level, 
+                       raw_spei3 as forecasted_spei3, confidence_score 
+                FROM forecast_history 
+                ORDER BY id DESC
+                LIMIT 1
+            """)
+            pending_alerts = [dict(row) for row in cursor.fetchall()]
 
         if not pending_alerts:
             print("[Edge Node Sync] No records found in SQLite DB to calibrate.")
