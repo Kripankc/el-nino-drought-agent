@@ -100,6 +100,8 @@ if st.sidebar.button("🔄 Sync Uncertainties with Cloud", use_container_width=T
         status = synchronizer.sync_pending_anomalies()
         if status:
             st.sidebar.success("Database memory calibrated successfully!")
+            # Force Streamlit to rerun and load new database journal entries
+            st.rerun()
         else:
             st.sidebar.info("No uncertainties pending cloud review.")
 
