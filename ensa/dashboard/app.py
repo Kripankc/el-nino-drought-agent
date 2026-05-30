@@ -3,6 +3,20 @@ import os
 # Append the repository root to Python path to ensure clean imports on Streamlit Cloud
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+import importlib
+# Force-reload ENSA modules on every run to bypass Streamlit server process caching!
+import ensa.config
+importlib.reload(ensa.config)
+from ensa.config import DB_PATH, ZAMBIA_BBOX
+
+import ensa.db.connection
+importlib.reload(ensa.db.connection)
+from ensa.db.connection import get_db_connection
+
+import ensa.agent.synchronizer
+importlib.reload(ensa.agent.synchronizer)
+from ensa.agent.synchronizer import BatchSynchronizer
+
 import streamlit as st
 import folium
 from streamlit_folium import folium_static
@@ -10,11 +24,6 @@ import json
 import sqlite3
 import pandas as pd
 from datetime import datetime
-
-# Import ENSA modules
-from ensa.config import DB_PATH, ZAMBIA_BBOX
-from ensa.db.connection import get_db_connection
-from ensa.agent.synchronizer import BatchSynchronizer
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
