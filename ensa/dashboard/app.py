@@ -95,6 +95,22 @@ if st.sidebar.button("🔄 Sync Uncertainties with Cloud", use_container_width=T
             import os
             os.environ["GEMINI_API_KEY"] = openai_key
             
+        # DIRECT ON-CLICK DIAGNOSTIC
+        st.sidebar.markdown("**On-Click Sync Diagnostics:**")
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM forecast_history")
+            total = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM forecast_history WHERE cloud_review_pending = 1")
+            pending = cursor.fetchone()[0]
+            st.sidebar.write(f"- Total rows inside click thread: `{total}`")
+            st.sidebar.write(f"- Pending reviews inside click thread: `{pending}`")
+        except Exception as e:
+            st.sidebar.error(f"- Direct query error: {e}")
+        finally:
+            conn.close()
+            
         try:
             synchronizer = BatchSynchronizer()
             status = synchronizer.sync_pending_anomalies()
