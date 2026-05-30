@@ -1,7 +1,10 @@
 import sqlite3
 import json
 from datetime import datetime
+import streamlit as st  # Import Streamlit for live on-screen synchronizer debugging
+
 from ensa.db.connection import get_db_connection
+from ensa.config import DB_PATH
 from ensa.agent.brain_cloud import CloudAgentBrain
 from ensa.agent.brain_local import LocalAgentBrain
 
@@ -20,13 +23,23 @@ class BatchSynchronizer:
         queries the Cloud API, and commits the learned weights back to SQLite.
         If force_latest is True and no pending reviews are flagged, it recalibrates
         the most recent forecast record on-demand.
-        
-        Note: We let all SQLite exceptions propagate completely without any 
-              swallowing or catching, exposing any operational errors directly in the UI.
         """
-        print("\n=== [Edge Node Sync] Starting Daily Cloud Sync Loop ===")
+        st.write("🔄 **Synchronizer Execution Diagnostics:**")
+        st.write(f"- Synchronizer active DB Path: `{DB_PATH}`")
+        
         conn = get_db_connection()
         cursor = conn.cursor()
+
+        # Direct verification of counts inside the synchronizer method
+        try:
+            cursor.execute("SELECT COUNT(*) FROM forecast_history")
+            sync_total = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM forecast_history WHERE cloud_review_pending = 1")
+            sync_pending = cursor.fetchone()[0]
+            st.write(f"- Total rows inside synchronizer: `{sync_total}`")
+            st.write(f"- Pending reviews inside synchronizer: `{sync_pending}`")
+        except Exception as e:
+            st.write(f"❌ Synchronizer Direct Query Error: {e}")
 
         # 1. Fetch pending alerts that need cloud validation (where cloud_review_pending = 1)
         cursor.execute("""
@@ -37,11 +50,11 @@ class BatchSynchronizer:
             LIMIT 5
         """)
         pending_alerts = [dict(row) for row in cursor.fetchall()]
+        st.write(f"- Initial pending alerts retrieved: `{pending_alerts}`")
 
-        # Fallback / Force Calibration: If no records are explicitly pending review,
-        # pull the latest forecast history entry anyway so the user can test on-demand!
+        # Fallback / Force Calibration
         if not pending_alerts and force_latest:
-            print("[Edge Node Sync] No pending alerts. Falling back to latest logged forecast for on-demand sync.")
+            st.write("- No pending alerts. Running force_latest fallback...")
             cursor.execute("""
                 SELECT id, target_region as district, alert_level as trigger_level, 
                        raw_spei3 as forecasted_spei3, confidence_score 
@@ -50,20 +63,19 @@ class BatchSynchronizer:
                 LIMIT 1
             """)
             pending_alerts = [dict(row) for row in cursor.fetchall()]
+            st.write(f"- Fallback alerts retrieved: `{pending_alerts}`")
 
         if not pending_alerts:
-            print("[Edge Node Sync] No records found in SQLite DB to calibrate.")
+            st.write("❌ No records found to calibrate inside synchronizer.")
             conn.close()
             return False
 
-        print(f"[Edge Node Sync] Syncing {len(pending_alerts)} records for biophysical cloud calibration.")
+        st.write(f"🚀 Found `{len(pending_alerts)}` records to calibrate. Querying Gemini API...")
 
         # 2. Package the anomalies and query the cloud Gemini API
         cloud_response = self.cloud_brain.run_daily_calibration(pending_alerts)
         
-        print("\n=== [Cloud Response Received] ===")
-        print(f"Calibration Rationale: {cloud_response['calibration_rationale']}")
-        print(f"Adjusted Weights: {json.dumps(cloud_response['adjusted_weights'])}")
+        st.write(f"🌿 Gemini response successfully received! Rationale: {cloud_response['calibration_rationale']}")
         
         # 3. Commit the updated biophysical weights and journal to the database
         for alert in pending_alerts:
@@ -99,7 +111,7 @@ class BatchSynchronizer:
             
         conn.commit()
         conn.close()
-        print("\n[Edge Node Sync] Local database memory successfully updated with dynamic weights!")
+        st.write("✅ Database memory committed successfully!")
         return True
 
 if __name__ == "__main__":
