@@ -304,3 +304,31 @@ else:
         st.info(row["agent_reasoning"])
         st.markdown("---")
 st.markdown("</div>", unsafe_allow_html=True)
+
+# ----------------- DIAGNOSTIC EXPANDER CONSOLE -----------------
+with st.expander("🛠️ Deep Database Inspector Console"):
+    st.write(f"📂 **Active DB Path**: `{DB_PATH}`")
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Query tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cursor.fetchall()]
+        st.write(f"📁 **Tables Present**: `{tables}`")
+        
+        # Query columns
+        cursor.execute("PRAGMA table_info(forecast_history)")
+        columns = [row[1] for row in cursor.fetchall()]
+        st.write(f"📊 **Columns in `forecast_history`**: `{columns}`")
+        
+        # Query rows
+        cursor.execute("SELECT * FROM forecast_history")
+        rows = [dict(row) for row in cursor.fetchall()]
+        st.write(f"🔍 **Row Count**: `{len(rows)}`")
+        if rows:
+            st.json(rows[-1])
+    except Exception as e:
+        st.error(f"Diagnostic Error: {e}")
+    finally:
+        conn.close()
