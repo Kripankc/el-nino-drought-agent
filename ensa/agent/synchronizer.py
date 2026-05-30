@@ -21,8 +21,8 @@ class BatchSynchronizer:
         If force_latest is True and no pending reviews are flagged, it recalibrates
         the most recent forecast record on-demand.
         
-        Note: We let database exceptions propagate to the caller (app.py UI) 
-              so they can be diagnosed visually rather than silenced.
+        Note: We let all SQLite exceptions propagate completely without any 
+              swallowing or catching, exposing any operational errors directly in the UI.
         """
         print("\n=== [Edge Node Sync] Starting Daily Cloud Sync Loop ===")
         conn = get_db_connection()
