@@ -765,6 +765,10 @@ with tab_dashboard:
         st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
         st.subheader("⚖️ Calibration Discrepancy & Validation Gap (Climatological Proof)")
         
+        # Calculate percent moisture deficit from cumulative demand and rain
+        cumulative_deficit = deficit_gap_mm
+        pct_water_deficit = max(0.0, (cumulative_deficit / (cumulative_actual_demand + 1e-8)) * 100.0)
+        
         # Vegetation Stress Deficit
         observed_stress = 100.0 - avg_vci
         
