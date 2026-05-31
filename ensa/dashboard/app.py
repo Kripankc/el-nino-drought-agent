@@ -514,7 +514,7 @@ with tab_dashboard:
                 ax_bal.set_ylabel("Water Depth (mm)", color="white")
                 ax_bal.tick_params(colors="white")
                 ax_bal.legend(facecolor="black", edgecolor="gray", labelcolor="white", fontsize="small")
-                ax_bal.grid(True, color="rgba(255, 255, 255, 0.1)")
+                ax_bal.grid(True, color="white", alpha=0.1)
                 st.pyplot(fig_bal)
                 st.caption("Supply-Demand Curve: White Maize entering water deficit (shaded orange region) as cumulative rainfall falls short of crop requirements.")
             
@@ -547,7 +547,7 @@ with tab_dashboard:
                 ax_lag.set_title("Deficit vs. Vegetation Stress (VCI)", color="white", fontsize="medium")
                 ax_lag.tick_params(colors="white")
                 ax_lag.set_ylim(0, 1.0)
-                ax_lag.grid(True, axis="y", color="rgba(255, 255, 255, 0.1)")
+                ax_lag.grid(True, axis="y", color="white", alpha=0.1)
                 st.pyplot(fig_lag)
                 st.caption(f"Lag Cross-Correlation: Peak correlation ($r = {correlations[peak_lag]:.2f}$) occurs at a **{peak_lag}-week lag**, confirming that current vegetative stress is a delayed response to rainfall anomalies from {peak_lag} weeks ago.")
                 
