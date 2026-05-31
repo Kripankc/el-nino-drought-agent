@@ -58,9 +58,13 @@ class Sentinel2Processor(BaseEOProcessor):
             signed_item = planetary_computer.sign(latest_item)
             
             # S2 Band asset URLs (B03=Green, B04=Red, B08=NIR)
-            b04_url = signed_item.assets['B04'].href
-            b08_url = signed_item.assets['B08'].href
-            b03_url = signed_item.assets['B03'].href
+            asset_b04 = signed_item.assets.get('B04')
+            asset_b08 = signed_item.assets.get('B08')
+            asset_b03 = signed_item.assets.get('B03')
+            
+            b04_url = asset_b04.href if hasattr(asset_b04, 'href') else asset_b04.get('href')
+            b08_url = asset_b08.href if hasattr(asset_b08, 'href') else asset_b08.get('href')
+            b03_url = asset_b03.href if hasattr(asset_b03, 'href') else asset_b03.get('href')
             
             print(f"[STAC S2] COG URLs resolved. Slicing tiny 100x100 Overview grids...")
             
@@ -138,10 +142,15 @@ class Sentinel2Processor(BaseEOProcessor):
             latest_item = items[0]
             signed_item = planetary_computer.sign(latest_item)
             
-            b04_url = signed_item.assets['B04'].href
-            b08_url = signed_item.assets['B08'].href
-            b03_url = signed_item.assets['B03'].href
-            thumbnail_url = signed_item.assets.get('thumbnail', {}).href
+            asset_b04 = signed_item.assets.get('B04')
+            asset_b08 = signed_item.assets.get('B08')
+            asset_b03 = signed_item.assets.get('B03')
+            thumb_asset = signed_item.assets.get('thumbnail')
+            
+            b04_url = asset_b04.href if hasattr(asset_b04, 'href') else asset_b04.get('href')
+            b08_url = asset_b08.href if hasattr(asset_b08, 'href') else asset_b08.get('href')
+            b03_url = asset_b03.href if hasattr(asset_b03, 'href') else asset_b03.get('href')
+            thumbnail_url = thumb_asset.href if hasattr(thumb_asset, 'href') else (thumb_asset.get('href') if isinstance(thumb_asset, dict) else None)
             
             print(f"[STAC S2 2D] Slicing high-res bands...")
             with rioxarray.open_rasterio(b04_url, chunks="auto") as src_red:
