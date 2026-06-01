@@ -125,7 +125,7 @@ class Sentinel2Processor(BaseEOProcessor):
         })
         return df
 
-    def fetch_spatial_grids(self, items, bbox, grid_size=(30, 30)) -> dict:
+    def fetch_spatial_grids(self, items, bbox, grid_size=(30, 30), seed=None) -> dict:
         """
         Extracts 2D high-resolution spatial crop index maps (NDVI, NDWI, VCI)
         directly from Sentinel-2 bands, signed through Planetary Computer.
@@ -133,7 +133,7 @@ class Sentinel2Processor(BaseEOProcessor):
         """
         if not items:
             print("[STAC S2] No STAC items. Generating procedural 2D value maps.")
-            return self._generate_procedural_grids(bbox, grid_size)
+            return self._generate_procedural_grids(bbox, grid_size, seed=seed)
             
         try:
             import planetary_computer
@@ -189,16 +189,17 @@ class Sentinel2Processor(BaseEOProcessor):
             
         except Exception as e:
             print(f"[STAC S2 2D Warning] Real pixel grid fetch failed: {e}. Falling back to procedural grids.")
-            return self._generate_procedural_grids(bbox, grid_size)
+            return self._generate_procedural_grids(bbox, grid_size, seed=seed)
 
-    def _generate_procedural_grids(self, bbox, grid_size=(30, 30)) -> dict:
+    def _generate_procedural_grids(self, bbox, grid_size=(30, 30), seed=None) -> dict:
         """
         Generates coordinates-responsive, scientifically realistic 2D crop index grids
         (NDVI, NDWI, VCI) representing smallholder farming plots and water bodies.
         Uses bounding-box hash seeds to ensure spatial persistence.
         """
         # Formulate persistent seed from coordinates to make simulation stable per bbox
-        seed = int((abs(bbox[0]) + abs(bbox[1]) + abs(bbox[2]) + abs(bbox[3])) * 1000) % 10000
+        if seed is None:
+            seed = int((abs(bbox[0]) + abs(bbox[1]) + abs(bbox[2]) + abs(bbox[3])) * 1000) % 10000
         np.random.seed(seed)
         
         nx, ny = grid_size

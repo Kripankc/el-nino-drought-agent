@@ -243,33 +243,30 @@ crop_choice = st.sidebar.selectbox("Select Target Crop", list(CROP_CALENDARS.key
 st.sidebar.markdown("---")
 st.sidebar.subheader("2. Area Selection & Coordinates")
 
-# Preset selector with state link
-def on_preset_change():
-    chosen = st.session_state.preset_choice_widget
-    st.session_state.preset_region = chosen
-    if chosen != "Custom Bounds":
-        st.session_state.bbox = PRESETS[chosen]["bbox"]
-
 preset_choice = st.sidebar.selectbox(
     "Select Preset Region", 
     list(PRESETS.keys()),
-    index=list(PRESETS.keys()).index(st.session_state.preset_region),
-    key="preset_choice_widget",
-    on_change=on_preset_change
+    index=list(PRESETS.keys()).index(st.session_state.preset_region)
 )
+
+if preset_choice != st.session_state.preset_region:
+    st.session_state.preset_region = preset_choice
+    if preset_choice != "Custom Bounds":
+        st.session_state.bbox = PRESETS[preset_choice]["bbox"]
+    st.rerun()
 
 # Number coordinate overrides in Sidebar
 c_lon1, c_lat1 = st.sidebar.columns(2)
 with c_lon1:
-    min_lon = st.number_input("Min Lon", value=st.session_state.bbox[0], format="%.3f", key="sidebar_min_lon")
+    min_lon = st.number_input("Min Lon", value=float(st.session_state.bbox[0]), format="%.4f")
 with c_lat1:
-    min_lat = st.number_input("Min Lat", value=st.session_state.bbox[1], format="%.3f", key="sidebar_min_lat")
+    min_lat = st.number_input("Min Lat", value=float(st.session_state.bbox[1]), format="%.4f")
 
 c_lon2, c_lat2 = st.sidebar.columns(2)
 with c_lon2:
-    max_lon = st.number_input("Max Lon", value=st.session_state.bbox[2], format="%.3f", key="sidebar_max_lon")
+    max_lon = st.number_input("Max Lon", value=float(st.session_state.bbox[2]), format="%.4f")
 with c_lat2:
-    max_lat = st.number_input("Max Lat", value=st.session_state.bbox[3], format="%.3f", key="sidebar_max_lat")
+    max_lat = st.number_input("Max Lat", value=float(st.session_state.bbox[3]), format="%.4f")
 
 # Update coordinates reactively and shift selector index to Custom Bounds
 new_bbox = [min_lon, min_lat, max_lon, max_lat]
@@ -443,7 +440,9 @@ with tab_dashboard:
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ----------------- SEED OFFSET GENERATION -----------------
-    seed = int((abs(st.session_state.bbox[0]) + abs(st.session_state.bbox[1])) * 1000) % 5000
+    # Incorporate selected date to ensure changes to target date reactively update simulated indices!
+    date_numeric = assessment_date.year * 365 + assessment_date.month * 30 + assessment_date.day
+    seed = int((abs(st.session_state.bbox[0]) + abs(st.session_state.bbox[1])) * 1000 + date_numeric) % 10000
     np.random.seed(seed)
     
     # ----------------- DUAL TEMPORAL ROUTE SELECTOR -----------------
@@ -530,7 +529,7 @@ with tab_dashboard:
             
         with st.spinner("Extracting spatial grids & downscaling COG bands..."):
             # Request 30x30 spatial grid
-            grid_data = processor.fetch_spatial_grids(scenes, st.session_state.bbox, grid_size=(30, 30))
+            grid_data = processor.fetch_spatial_grids(scenes, st.session_state.bbox, grid_size=(30, 30), seed=seed)
             
         # Grid array casting
         ndvi_array = np.array(grid_data["ndvi"])
