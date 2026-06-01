@@ -261,15 +261,15 @@ preset_choice = st.sidebar.selectbox(
 # Number coordinate overrides in Sidebar
 c_lon1, c_lat1 = st.sidebar.columns(2)
 with c_lon1:
-    min_lon = st.number_input("Min Lon", value=st.session_state.bbox[0], format="%.3f", key="sidebar_min_lon")
+    min_lon = st.number_input("Min Lon", value=float(st.session_state.bbox[0]), format="%.4f")
 with c_lat1:
-    min_lat = st.number_input("Min Lat", value=st.session_state.bbox[1], format="%.3f", key="sidebar_min_lat")
+    min_lat = st.number_input("Min Lat", value=float(st.session_state.bbox[1]), format="%.4f")
 
 c_lon2, c_lat2 = st.sidebar.columns(2)
 with c_lon2:
-    max_lon = st.number_input("Max Lon", value=st.session_state.bbox[2], format="%.3f", key="sidebar_max_lon")
+    max_lon = st.number_input("Max Lon", value=float(st.session_state.bbox[2]), format="%.4f")
 with c_lat2:
-    max_lat = st.number_input("Max Lat", value=st.session_state.bbox[3], format="%.3f", key="sidebar_max_lat")
+    max_lat = st.number_input("Max Lat", value=float(st.session_state.bbox[3]), format="%.4f")
 
 # Update coordinates reactively and shift selector index to Custom Bounds
 new_bbox = [min_lon, min_lat, max_lon, max_lat]
@@ -405,6 +405,7 @@ with tab_dashboard:
                 # Update Session State
                 st.session_state.bbox = [min(lons), min(lats), max(lons), max(lats)]
                 st.session_state.preset_region = "Custom Bounds"
+                st.session_state.preset_choice_widget = "Custom Bounds"
                 st.toast("✏️ Custom study rectangle captured reactively!")
                 st.rerun()
         
@@ -415,6 +416,7 @@ with tab_dashboard:
             # Center a 0.15-degree box around clicked point
             st.session_state.bbox = [click_lon - 0.075, click_lat - 0.075, click_lon + 0.075, click_lat + 0.075]
             st.session_state.preset_region = "Custom Bounds"
+            st.session_state.preset_choice_widget = "Custom Bounds"
             st.toast(f"📍 Map click captured! Viewport centered at ({click_lon:.3f}, {click_lat:.3f})")
             st.rerun()
             
@@ -443,7 +445,9 @@ with tab_dashboard:
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ----------------- SEED OFFSET GENERATION -----------------
-    seed = int((abs(st.session_state.bbox[0]) + abs(st.session_state.bbox[1])) * 1000) % 5000
+    # Incorporate selected date to ensure changes to target date reactively update simulated indices!
+    date_numeric = assessment_date.year * 365 + assessment_date.month * 30 + assessment_date.day
+    seed = int((abs(st.session_state.bbox[0]) + abs(st.session_state.bbox[1])) * 1000 + date_numeric) % 10000
     np.random.seed(seed)
     
     # ----------------- DUAL TEMPORAL ROUTE SELECTOR -----------------
