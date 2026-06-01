@@ -207,14 +207,22 @@ class Sentinel2Processor(BaseEOProcessor):
         y = np.linspace(-2, 2, ny)
         xv, yv = np.meshgrid(x, y)
         
+        # Shift the checkerboard crop fields pattern based on the seed
+        shift_x = (seed % 7) * 0.45
+        shift_y = ((seed // 7) % 7) * 0.45
+        
         # 1. Simulate crop fields using rectangular checkerboard patterns
-        fields = np.sin(xv * 3.5) * np.cos(yv * 3.5)
+        fields = np.sin((xv + shift_x) * 3.5) * np.cos((yv + shift_y) * 3.5)
         ndvi_2d = 0.45 + 0.25 * fields + np.random.normal(0, 0.05, grid_size)
         
-        # 2. Simulate a local reservoir in the top-right corner
-        # Reservoir presence: high NDWI, low/negative NDVI
-        dist_to_corner = np.sqrt((xv - 1.2)**2 + (yv - 1.2)**2)
-        reservoir_mask = dist_to_corner < 0.6
+        # 2. Simulate a local reservoir at a seed-dependent position!
+        # Place it at a dynamic location based on the seed so it physically moves on map updates
+        res_x = 0.8 + 0.5 * np.sin(seed * 0.45)
+        res_y = 0.8 + 0.5 * np.cos(seed * 0.73)
+        res_radius = 0.5 + 0.15 * np.sin(seed * 0.2)
+        
+        dist_to_corner = np.sqrt((xv - res_x)**2 + (yv - res_y)**2)
+        reservoir_mask = dist_to_corner < res_radius
         
         ndvi_2d[reservoir_mask] = -0.15 + np.random.normal(0, 0.02, np.sum(reservoir_mask))
         ndvi_2d = np.clip(ndvi_2d, -0.2, 0.85)
