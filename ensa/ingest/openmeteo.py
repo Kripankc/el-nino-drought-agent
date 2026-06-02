@@ -62,5 +62,7 @@ def _parse_daily(daily: dict) -> pd.DataFrame:
     df["temp_c"]    = pd.to_numeric(df["temp_c"],    errors="coerce")
     df["et0_mm"]    = pd.to_numeric(df["et0_mm"],    errors="coerce").fillna(0.0)
     df.dropna(subset=["temp_c"], inplace=True)
+    # Strip timezone so date comparisons work cleanly everywhere
+    df["date"] = df["date"].dt.tz_localize(None)
     df["water_balance_mm"] = df["precip_mm"] - df["et0_mm"]
     return df.reset_index(drop=True)
