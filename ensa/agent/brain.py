@@ -9,6 +9,7 @@ class ENSABrain:
         self.provider = provider or LLM_PROVIDER
         self.openai_key = OPENAI_API_KEY
         self.anthropic_key = ANTHROPIC_API_KEY
+        self.gemini_key = os.getenv("GEMINI_API_KEY")
 
     def search_on_the_go(self, query):
         """
@@ -73,7 +74,9 @@ class ENSABrain:
         )
 
         # Step 2: Query the LLM
-        if self.provider == "openai" and self.openai_key:
+        if self.provider == "gemini" and self.gemini_key:
+            return self._query_gemini(prompt_content)
+        elif self.provider == "openai" and self.openai_key:
             return self._query_openai(prompt_content)
         elif self.provider == "anthropic" and self.anthropic_key:
             return self._query_anthropic(prompt_content)
@@ -81,6 +84,29 @@ class ENSABrain:
             # Fallback Simulator Mode (Premium, fully-featured mock returned if keys missing)
             print("[System Warning] No API keys detected. Operating in high-fidelity simulation mode.")
             return self._generate_mock_analysis(region_data, findings)
+
+    def _query_gemini(self, prompt_content):
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.gemini_key}"
+            headers = {"Content-Type": "application/json"}
+            payload = {
+                "contents": [{"parts": [{"text": prompt_content}]}],
+                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.2
+                }
+            }
+            res = requests.post(url, headers=headers, json=payload, timeout=30)
+            res.raise_for_status()
+            
+            candidates = res.json().get("candidates", [])
+            if candidates:
+                text_out = candidates[0]["content"]["parts"][0]["text"]
+                return json.loads(text_out)
+        except Exception as e:
+            print(f"[LLM Error] Gemini call failed: {e}")
+        return self._generate_mock_analysis({}, "API Connection Error")
 
     def _query_openai(self, prompt_content):
         try:

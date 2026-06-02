@@ -13,34 +13,58 @@ class ECMWFIngestor(BaseIngestor):
         self.api_key = CDS_API_KEY
         self.api_url = CDS_API_URL
 
-    def fetch(self, bbox, start_date, end_date) -> pd.DataFrame:
+    def fetch(self, point_or_bbox, start_date, end_date) -> pd.DataFrame:
         """
-        Queries Copernicus Climate Data Store (CDS) for seasonal forecast anomalies.
-        Falls back to a high-fidelity local climatology simulation if CDS credentials are missing.
+        Pulls real daily maximum temperature and precipitation sum from the Open-Meteo API.
+        Falls back to local simulation only if the network query fails.
         """
-        print(f"[ECMWF Ingestor] Fetching forecast anomalies over bbox: {bbox}")
+        if len(point_or_bbox) == 2:
+            lat, lon = point_or_bbox
+        else:
+            lon_min, lat_min, lon_max, lat_max = point_or_bbox
+            lat = (lat_min + lat_max) / 2.0
+            lon = (lon_min + lon_max) / 2.0
+            
+        print(f"[ECMWF Ingestor] Querying Open-Meteo daily weather for point ({lat:.4f}, {lon:.4f}) from {start_date} to {end_date}")
         
-        # Check if CDS credentials are configured
-        if not self.api_key or self.api_key == "":
-            print("[ECMWF Ingestor Warning] CDS API key not configured. Using local forecast simulation.")
-            return self._simulate_forecast(bbox, start_date, end_date)
-
         try:
-            import cdsapi
-            c = cdsapi.Client(url=self.api_url, key=self.api_key)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            today = datetime.now()
             
-            # Fetch seasonal forecast anomaly grid (NetCDF)
-            # In a full run, this downloads a lightweight NetCDF of anomaly grids
-            print("[ECMWF Ingestor] Querying cdsapi 'seasonal-postprocessed-single-levels'...")
-            # c.retrieve(...)
+            if end_dt > today:
+                url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,precipitation_sum&past_days=92&timezone=auto"
+            else:
+                url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}&daily=temperature_2m_max,precipitation_sum&timezone=auto"
+                
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            data = r.json().get("daily", {})
             
-            return self._simulate_forecast(bbox, start_date, end_date)
-        except ImportError:
-            print("[ECMWF Ingestor Error] 'cdsapi' library missing. Falling back to local simulation.")
-            return self._simulate_forecast(bbox, start_date, end_date)
+            dates = data.get("time", [])
+            temps = data.get("temperature_2m_max", [])
+            precips = data.get("precipitation_sum", [])
+            
+            if not dates:
+                raise ValueError("Empty data returned from Open-Meteo API")
+                
+            df = pd.DataFrame({
+                "date": dates,
+                "temperature_2m_max": temps,
+                "precipitation_sum": precips
+            })
+            
+            df = df.interpolate(limit_direction="both")
+            
+            mean_temp = df["temperature_2m_max"].mean()
+            mean_precip = df["precipitation_sum"].mean() if df["precipitation_sum"].mean() > 0 else 1.0
+            
+            df["temp_anomaly_c"] = np.round(df["temperature_2m_max"] - mean_temp, 2)
+            df["precip_anomaly_pct"] = np.round(((df["precipitation_sum"] - mean_precip) / mean_precip) * 100.0, 2)
+            
+            return df
         except Exception as e:
-            print(f"[ECMWF Ingestor API Error] Failed to fetch from CDS: {e}")
-            return self._simulate_forecast(bbox, start_date, end_date)
+            print(f"[ECMWF Ingestor Error] Failed to fetch from Open-Meteo: {e}. Falling back to simulation.")
+            return self._simulate_forecast(point_or_bbox, start_date, end_date)
 
     def validate(self, data: pd.DataFrame) -> bool:
         """Verifies if the forecast output contains essential forecast columns."""
