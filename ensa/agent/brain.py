@@ -38,7 +38,7 @@ def compute_drought_score(
 
     # SPI-3 (McKee 1993) — needs the full history for a proper fit
     spi_series = calculate_spi3(df["precip_mm"])
-    spi3_now = float(spi_series.iloc[-1]) if len(spi_series) else 0.0
+    spi3_now = float(spi_series[-1]) if len(spi_series) else 0.0
 
     # ── Precipitation component (0–40 pts) ───────────────────────────────
     if spi3_now <= -2.0:
