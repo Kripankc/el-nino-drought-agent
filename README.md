@@ -1,44 +1,85 @@
-# ENSA (El Niño Sentinel Agent) 🛰️🌾
-> **Drought Early Warning & Earth Observation Monitoring System**
+# ENSA — El Niño Sentinel Agent 🌾🛰️
+> **Free agricultural drought early-warning system for smallholder farmers**
 
-ENSA is an autonomous, agentic AI system designed to sit on top of Copernicus GDO, ECMWF, and CDSE STAC services to predict, monitor, and assess agricultural drought impacts at a local field scale during the **El Niño 2026** season in Southern Africa.
+ENSA monitors any farm location on Earth for El Niño-driven drought risk. It combines real weather data, evapotranspiration calculations, and ENSO index tracking to produce a simple risk score with plain-language recommendations.
+
+**Everything is free.** No satellites subscription, no paid API keys, no cloud bill. Just open data.
 
 ---
 
-## 🚀 Getting Started
+## Data Sources (all free, no registration)
 
-### 1. Set as Active Workspace
-To begin developing and running this project, **set this directory as your active workspace in your IDE**.
-- Workspace path: `C:\Users\USER\.gemini\antigravity\scratch\el_nino_drought_agent`
+| Source | What it provides |
+|--------|-----------------|
+| [Open-Meteo](https://open-meteo.com/) | Daily rainfall, temperature, and FAO-56 evapotranspiration for any lat/lon, back to 1940 |
+| [Open-Meteo Forecast](https://open-meteo.com/) | 14-day weather forecast, globally |
+| [NOAA CPC NINO3.4](https://www.cpc.ncep.noaa.gov/) | Monthly Oceanic Niño Index (El Niño / La Niña intensity) |
 
-### 2. Install Dependencies
-Make sure you have a Python environment ready (Python 3.10+ recommended). Run the following to install the core libraries:
+---
+
+## Quick Start
+
+### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. API Key Setup
-You will need credentials for the following services:
-- **Copernicus CDS (Climate Data Store)**: Register a free account at [cds.climate.copernicus.eu](https://cds.climate.copernicus.eu/) and place your `.cdsapirc` file in your home directory.
-- **CDSE (Copernicus Data Space Ecosystem)**: Register a free account at [dataspace.copernicus.eu](https://dataspace.copernicus.eu/) for STAC queries and Sentinel-2 downloads.
-- **OpenAI / Anthropic (LLM Layer)**: Provide API credentials in your environment variables.
+### 2. Run the dashboard
+```bash
+streamlit run ensa/dashboard/app.py
+```
+
+### 3. (Optional) API key for AI narrative
+Create a `.env` file from the template:
+```bash
+cp .env.example .env
+# edit .env and add ANTHROPIC_API_KEY or OPENAI_API_KEY
+```
+The dashboard works fully without this. The AI feature only adds a richer narrative paragraph.
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
-- `ensa/system_design.md`: Core system architecture, database schema, and data flows.
-- `ensa/ingest/`: Python scripts to ingest ECMWF forecasts, GDO WCS indicators, and ENSO SST indices.
-- `ensa/eo/`: STAC searcher and raster processing (NDVI, VCI, NDWI) with `xarray` and `rioxarray`.
-- `ensa/agent/`: The LLM agentic core, containing prompt templates and tools for evaluating seasonal risks.
-- `ensa/dashboard/`: MVP dashboard built using Streamlit and Folium maps.
-- `run_worker.py`: 24/7 background scheduler loop.
+```
+ensa/
+  ingest/
+    openmeteo.py     # Real weather data from Open-Meteo (free)
+    enso.py          # NINO3.4 SST anomaly from NOAA CPC (free)
+  agent/
+    brain.py         # Drought scoring + optional LLM narrative
+  math/
+    meteorology.py   # SPI-3, SPEI calculations
+    pdsi.py          # Palmer Drought Severity Index
+    indices.py       # NDVI, NDWI, VCI (for satellite path)
+  core/
+    gatekeeper.py    # Pearson correlation & confidence scoring
+  dashboard/
+    app.py           # Streamlit farmer-facing dashboard
+  db/
+    schema.sql       # SQLite schema for saved assessments
+```
 
 ---
 
-## 🤖 Leverage Agentic Workflows
+## Risk Score Methodology
 
-We recommend using the following slash commands in the IDE:
-- `/goal`: To initiate long-running autonomous development tasks (e.g., *"Set up the entire ingestion pipeline and write automated tests for it"*).
-- `/schedule`: To schedule periodic data ingestion runs or agent evaluations.
-- `/browser`: To query the STAC catalogs visually or inspect CDS documentation pages.
+ENSA computes a **0–100 drought risk score** from:
+
+1. **SPI-3** (McKee et al. 1993) — Standardised Precipitation Index from real rainfall history
+2. **Cumulative Water Deficit** (P − ET₀) — Rainfall minus crop evaporation demand (FAO-56 Penman-Monteith)
+3. **Temperature stress** — Heat above the crop's optimal range increases evaporation
+4. **ENSO amplification** — El Niño phases (NINO3.4 ≥ +0.5°C) multiply the score up to ×1.5
+5. **Crop stage weighting** — Flowering and grain-fill stages carry ×1.35 weight (most sensitive to water stress)
+
+---
+
+## Hosting (free)
+
+Deploy for free on [Streamlit Community Cloud](https://streamlit.io/cloud):
+1. Push this repo to GitHub
+2. Connect to Streamlit Cloud
+3. Set `STREAMLIT_SHARING_MODE=1` in Secrets
+4. Optionally add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to Secrets for the AI feature
+
+The background worker (`run_worker.py`) can run weekly via GitHub Actions (free tier).
