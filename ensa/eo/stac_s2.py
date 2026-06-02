@@ -46,7 +46,25 @@ class Sentinel2Processor(BaseEOProcessor):
                 query={"eo:cloud_cover": {"lt": 15}}
             )
             items = list(search.get_items())
-            print(f"[STAC S2] Found {len(items)} matching cloud-free Sentinel-2 scenes.")
+            print(f"[STAC S2] Found {len(items)} matching cloud-free Sentinel-2 scenes in default window.")
+            
+            if not items:
+                print("[STAC S2] No scenes found in default date window. Widening search window up to 1 year back...")
+                try:
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                except ValueError:
+                    end_dt = datetime.now()
+                start_dt = end_dt - timedelta(days=365)
+                
+                search_fallback = catalog.search(
+                    collections=["sentinel-2-l2a"],
+                    bbox=bbox,
+                    datetime=f"{start_dt.strftime('%Y-%m-%d')}/{end_dt.strftime('%Y-%m-%d')}",
+                    query={"eo:cloud_cover": {"lt": 30}}
+                )
+                items = list(search_fallback.get_items())
+                print(f"[STAC S2 Fallback] Found {len(items)} scenes in 1-year historical window.")
+                
             return items
         except Exception as e:
             print(f"[STAC S2 Warning] STAC Client query failed: {e}. Falling back to simulation.")

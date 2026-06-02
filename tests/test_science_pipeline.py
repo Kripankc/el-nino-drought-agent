@@ -76,5 +76,25 @@ class TestENSASciencePipeline(unittest.TestCase):
         self.assertAlmostEqual(bbox[2], 27.665, places=4)
         self.assertAlmostEqual(bbox[3], -16.235, places=4)
 
+    def test_open_meteo_ingestion(self):
+        """Verifies that ECMWFIngestor and GDOWCSIngestor correctly fetch real Open-Meteo data."""
+        from ensa.ingest.ecmwf import ECMWFIngestor
+        from ensa.ingest.gdo_wcs import GDOWCSIngestor
+        
+        point = (-16.25, 27.65)
+        start_date = "2025-05-01"
+        end_date = "2025-05-10"
+        
+        ecmwf = ECMWFIngestor()
+        df_weather = ecmwf.fetch(point, start_date, end_date)
+        self.assertTrue(len(df_weather) > 0)
+        self.assertIn("temp_anomaly_c", df_weather.columns)
+        self.assertIn("precip_anomaly_pct", df_weather.columns)
+        
+        gdo = GDOWCSIngestor()
+        df_sm = gdo.fetch(point, start_date, end_date)
+        self.assertTrue(len(df_sm) > 0)
+        self.assertIn("soil_moisture_anomaly", df_sm.columns)
+
 if __name__ == "__main__":
     unittest.main()

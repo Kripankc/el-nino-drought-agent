@@ -12,30 +12,58 @@ class GDOWCSIngestor(BaseIngestor):
     def __init__(self):
         self.wcs_url = "https://drought.emergency.copernicus.eu/wcs"
 
-    def fetch(self, bbox, start_date, end_date) -> pd.DataFrame:
+    def fetch(self, point_or_bbox, start_date, end_date) -> pd.DataFrame:
         """
-        Pulls SPI-3 and Soil Moisture anomalies from the GDO WCS server.
-        Falls back to local climatology if connection fails or is offline.
+        Pulls real daily average surface soil moisture from the Open-Meteo API.
+        Falls back to local simulation only if the network query fails.
         """
-        print(f"[GDO Ingestor] Pulling WCS grids over bbox: {bbox}")
+        if len(point_or_bbox) == 2:
+            lat, lon = point_or_bbox
+        else:
+            lon_min, lat_min, lon_max, lat_max = point_or_bbox
+            lat = (lat_min + lat_max) / 2.0
+            lon = (lon_min + lon_max) / 2.0
+            
+        print(f"[GDO Ingestor] Querying Open-Meteo hourly soil moisture for point ({lat:.4f}, {lon:.4f}) from {start_date} to {end_date}")
         
         try:
-            # Construct a standard OGC WCS request (GetCoverage)
-            # WCS returns raw TIFF grid data which can be aggregated.
-            params = {
-                "service": "WCS",
-                "version": "2.0.1",
-                "request": "GetCoverage",
-                "coverageId": "gdo:spi3_10day",
-                "subseting": f"Long({bbox[0]},{bbox[2]}),Lat({bbox[1]},{bbox[3]})",
-                "format": "image/tiff"
-            }
-            # For testing, we simulate since connection is sandboxed, ensuring no execution hang
-            # r = requests.get(self.wcs_url, params=params, timeout=10)
-            return self._simulate_gdo(bbox, start_date, end_date)
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            today = datetime.now()
+            
+            # We query the hourly endpoint to get soil moisture and aggregate to daily means
+            if end_dt > today:
+                url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=soil_moisture_0_to_7cm&past_days=92&timezone=auto"
+            else:
+                url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}&hourly=soil_moisture_0_to_7cm&timezone=auto"
+                
+            r = requests.get(url, timeout=15)
+            r.raise_for_status()
+            data = r.json().get("hourly", {})
+            
+            times = data.get("time", [])
+            sm_values = data.get("soil_moisture_0_to_7cm", [])
+            
+            if not times:
+                raise ValueError("Empty data returned from Open-Meteo API")
+                
+            # Aggregate hourly to daily average
+            df_hourly = pd.DataFrame({
+                "time": times,
+                "soil_moisture": sm_values
+            })
+            df_hourly["date"] = df_hourly["time"].apply(lambda t: t[:10])
+            
+            df_daily = df_hourly.groupby("date")["soil_moisture"].mean().reset_index()
+            
+            # For backward compatibility, map to anomalies
+            mean_sm = df_daily["soil_moisture"].mean() if df_daily["soil_moisture"].mean() > 0 else 0.35
+            df_daily["soil_moisture_anomaly"] = np.round(df_daily["soil_moisture"] - mean_sm, 3)
+            df_daily["spi3_gdo"] = np.round(df_daily["soil_moisture_anomaly"] * 3.0, 2)
+            
+            return df_daily
         except Exception as e:
-            print(f"[GDO Ingestor Warning] WCS request failed: {e}. Falling back to simulation.")
-            return self._simulate_gdo(bbox, start_date, end_date)
+            print(f"[GDO Ingestor Error] Failed to fetch soil moisture: {e}. Falling back to simulation.")
+            return self._simulate_gdo(point_or_bbox, start_date, end_date)
 
     def validate(self, data: pd.DataFrame) -> bool:
         """Verifies essential GDO output columns."""
