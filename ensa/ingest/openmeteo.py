@@ -54,10 +54,13 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
 def _parse_daily(daily: dict) -> pd.DataFrame:
     df = pd.DataFrame({
         "date": pd.to_datetime(daily["time"]),
-        "precip_mm": pd.to_numeric(daily["precipitation_sum"], errors="coerce").fillna(0.0),
-        "temp_c": pd.to_numeric(daily["temperature_2m_mean"], errors="coerce"),
-        "et0_mm": pd.to_numeric(daily["et0_fao_evapotranspiration"], errors="coerce").fillna(0.0),
+        "precip_mm": daily["precipitation_sum"],
+        "temp_c": daily["temperature_2m_mean"],
+        "et0_mm": daily["et0_fao_evapotranspiration"],
     })
+    df["precip_mm"] = pd.to_numeric(df["precip_mm"], errors="coerce").fillna(0.0)
+    df["temp_c"]    = pd.to_numeric(df["temp_c"],    errors="coerce")
+    df["et0_mm"]    = pd.to_numeric(df["et0_mm"],    errors="coerce").fillna(0.0)
     df.dropna(subset=["temp_c"], inplace=True)
     df["water_balance_mm"] = df["precip_mm"] - df["et0_mm"]
     return df.reset_index(drop=True)

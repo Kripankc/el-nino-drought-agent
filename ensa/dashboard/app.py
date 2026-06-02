@@ -273,12 +273,23 @@ st.sidebar.subheader("2. Crop")
 available_crops = list(CROP_CALENDARS.get(active_region, CROP_CALENDARS["Zambia"]).keys())
 crop_choice = st.sidebar.selectbox("Crop type", available_crops)
 cal = CROP_CALENDARS[active_region][crop_choice]
-today_month = datetime.now().month
-crop_stage = cal["stages"][today_month]
-is_active = _is_active_season(cal, today_month)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("3. AI Analysis (optional)")
+st.sidebar.subheader("3. Assessment Date")
+st.sidebar.caption("Pick any past date to analyse historical conditions, or today for the current situation.")
+assessment_date = st.sidebar.date_input(
+    "Date",
+    value=datetime.now().date(),
+    min_value=datetime(2000, 1, 1).date(),
+    max_value=(datetime.now() + timedelta(days=14)).date(),
+)
+assessment_month = assessment_date.month
+crop_stage = cal["stages"][assessment_month]
+is_active = _is_active_season(cal, assessment_month)
+is_forecast_mode = assessment_date > (datetime.now() - timedelta(days=5)).date()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("4. AI Analysis (optional)")
 st.sidebar.caption(
     "The core dashboard is 100% free. Optionally, paste your own API key "
     "below to unlock an AI-generated narrative for your farm."
@@ -389,9 +400,11 @@ with tab_farm:
         st.markdown(f"<div class='data-label'>Coordinates</div><div class='data-value' style='font-size:1rem'>{lat:.4f}°, {lon:.4f}°</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='data-label' style='margin-top:12px'>Region</div><div class='data-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='data-label' style='margin-top:12px'>Crop</div><div class='data-value' style='font-size:1.1rem'>{crop_choice}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='data-label' style='margin-top:12px'>Current Stage</div><div class='data-value' style='font-size:.95rem'>{crop_stage}</div>", unsafe_allow_html=True)
-        if not is_active:
-            st.warning("Off-season — crops are in fallow.")
+        st.markdown(f"<div class='data-label' style='margin-top:12px'>Crop Stage ({assessment_date.strftime('%b %Y')})</div><div class='data-value' style='font-size:.95rem'>{crop_stage}</div>", unsafe_allow_html=True)
+        if is_forecast_mode:
+            st.info("🔮 Forecast mode")
+        elif not is_active:
+            st.warning("Off-season / fallow")
         st.markdown("</div>", unsafe_allow_html=True)
 
     if not data_ok:
@@ -403,7 +416,15 @@ with tab_farm:
         st.stop()
 
     # ── RISK SCORE ──────────────────────────────────────────────────────────
-    assessment = compute_drought_score(df_weather, oni_v, crop_stage, is_active)
+    # Slice weather history up to the selected assessment date
+    assessment_dt = pd.Timestamp(assessment_date)
+    if is_forecast_mode and df_forecast is not None and not df_forecast.empty:
+        df_for_score = pd.concat([df_weather, df_forecast], ignore_index=True)
+        df_for_score = df_for_score[df_for_score["date"] <= assessment_dt]
+    else:
+        df_for_score = df_weather[df_weather["date"] <= assessment_dt]
+
+    assessment = compute_drought_score(df_for_score, oni_v, crop_stage, is_active)
     score = assessment["score"]
     level = assessment["alert_level"]
     color = assessment["alert_color"]
@@ -426,7 +447,7 @@ with tab_farm:
     # ── 4 METRIC CARDS ──────────────────────────────────────────────────────
     m1, m2, m3, m4 = st.columns(4)
 
-    tail90 = df_weather.tail(90)
+    tail90 = df_for_score.tail(90)
     precip_90 = tail90["precip_mm"].sum()
     temp_90   = tail90["temp_c"].mean()
     et0_90    = tail90["et0_mm"].sum()
