@@ -560,80 +560,94 @@ def _gauge(score, color):
     return fig
 
 
-def _monthly_bar_chart(df_hist, daily_demand_mm, cal, title="Monthly Rainfall vs Crop Need"):
-    """Grouped bar: actual monthly rain vs crop daily demand × days in month."""
-    df = df_hist.copy()
-    df["month"] = df["date"].dt.month
-    df["year"]  = df["date"].dt.year
-    df["ym"]    = df["date"].dt.to_period("M")
+def _ax_style(ax, xlabel_rotation=30):
+    """Consistent dark-theme chart style."""
+    ax.set_facecolor("none")
+    ax.tick_params(colors="#94a3b8", labelsize=8)
+    ax.spines[:].set_visible(False)
+    ax.grid(axis="y", color="white", alpha=0.05, linewidth=0.6)
+    plt.xticks(rotation=xlabel_rotation, ha="right")
+    for lbl in ax.get_xticklabels() + ax.get_yticklabels():
+        lbl.set_color("#94a3b8")
 
+
+def _monthly_bar_chart(df_hist, daily_demand_mm, cal):
+    """Single-bar chart coloured by adequacy + dashed need line."""
+    df = df_hist.copy()
+    df["ym"] = df["date"].dt.to_period("M")
     monthly = df.groupby("ym").agg(
         precip_mm=("precip_mm","sum"),
-        et0_mm=("et0_mm","sum"),
         n_days=("precip_mm","count"),
     ).reset_index()
     monthly["needed_mm"] = monthly.apply(
         lambda r: daily_demand_mm * r["n_days"] if _is_active(cal, r["ym"].month) else 0, axis=1
     )
-    monthly["label"] = monthly["ym"].dt.strftime("%b %y")
+    monthly["label"] = monthly["ym"].dt.strftime("%b '%y")
 
-    fig, ax = plt.subplots(figsize=(10, 3.4), facecolor="none")
-    ax.set_facecolor("none")
-    x = np.arange(len(monthly))
-    w = 0.38
-    bars_got  = ax.bar(x - w/2, monthly["precip_mm"], w, color="#3b82f6", alpha=0.8, label="Actual rain (mm)")
-    bars_need = ax.bar(x + w/2, monthly["needed_mm"], w, color="#f97316", alpha=0.7, label="Crop water need (mm)")
+    def _bar_color(row):
+        if row["needed_mm"] == 0: return "#334155"          # off-season, slate
+        if row["precip_mm"] >= row["needed_mm"] * 0.9: return "#22c55e"   # met
+        if row["precip_mm"] >= row["needed_mm"] * 0.6: return "#f59e0b"   # borderline
+        return "#ef4444"                                      # deficit
 
-    # Colour bars red when supply < 50% of need
-    for i, (g, n) in enumerate(zip(monthly["precip_mm"], monthly["needed_mm"])):
-        if n > 0 and g < n * 0.5:
-            bars_got[i].set_color("#ef4444")
-            bars_got[i].set_alpha(0.9)
+    colors = monthly.apply(_bar_color, axis=1)
 
-    ax.set_xticks(x); ax.set_xticklabels(monthly["label"], fontsize=8, color="white", rotation=30, ha="right")
-    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
-    ax.set_ylabel("mm", color="white", fontsize=9)
-    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
-    ax.set_title(title, color="white", fontsize=10, pad=8)
+    fig, ax = plt.subplots(figsize=(8, 2.8), facecolor="none")
+    ax.bar(range(len(monthly)), monthly["precip_mm"], color=colors, alpha=0.85, width=0.65, zorder=2)
+    ax.plot(range(len(monthly)), monthly["needed_mm"], color="#38ef7d",
+            linewidth=1.6, linestyle="--", marker="o", markersize=3.5,
+            label="Crop water need", zorder=3)
+    ax.set_xticks(range(len(monthly)))
+    ax.set_xticklabels(monthly["label"])
+    _ax_style(ax)
+    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
+
+    from matplotlib.patches import Patch
+    legend_els = [
+        Patch(facecolor="#22c55e", alpha=0.85, label="Adequate (≥ 90% of need)"),
+        Patch(facecolor="#f59e0b", alpha=0.85, label="Below optimal (60–90%)"),
+        Patch(facecolor="#ef4444", alpha=0.85, label="Critical deficit (< 60%)"),
+        Patch(facecolor="#334155", alpha=0.85, label="Off-season"),
+        plt.Line2D([0],[0], color="#38ef7d", linewidth=1.5, linestyle="--", label="Crop water need"),
+    ]
+    ax.legend(handles=legend_els, facecolor="#0d1117", edgecolor="#1e293b",
+              labelcolor="#cbd5e1", fontsize=7, ncol=2, loc="upper right")
     return fig
 
 
-def _forecast_chart(df_fc, daily_demand_mm, crop_name):
-    """Forecast bars with daily crop-need line."""
-    fig, ax = plt.subplots(figsize=(10, 3.0), facecolor="none")
-    ax.set_facecolor("none")
-    colors = ["#60a5fa" if r >= daily_demand_mm else "#f87171"
+def _forecast_chart(df_fc, daily_demand_mm):
+    """Forecast bars coloured by whether they meet crop daily need."""
+    colors = ["#22c55e" if r >= daily_demand_mm else
+              ("#f59e0b" if r >= daily_demand_mm * 0.5 else "#ef4444")
               for r in df_fc["precip_mm"]]
-    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.85, width=0.8)
-    ax.axhline(daily_demand_mm, color="#38ef7d", linestyle="--", linewidth=1.5,
-               label=f"Daily crop need ({daily_demand_mm} mm)")
+    fig, ax = plt.subplots(figsize=(8, 2.6), facecolor="none")
+    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.85, width=0.8, zorder=2)
+    ax.axhline(daily_demand_mm, color="#38ef7d", linestyle="--",
+               linewidth=1.4, label=f"Daily crop need ({daily_demand_mm} mm)", zorder=3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
-    plt.xticks(rotation=30, color="white", fontsize=8)
-    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
-    ax.set_ylabel("mm/day", color="white", fontsize=9)
-    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
-    ax.set_title(f"14-Day Forecast — Blue = meets {crop_name} need, Red = deficit day",
-                 color="white", fontsize=9, pad=6)
+    _ax_style(ax)
+    ax.set_ylabel("mm/day", color="#94a3b8", fontsize=8)
+    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
     return fig
 
 
 def _water_balance_chart(df_hist):
-    """Cumulative P–ET0 over last 90 days."""
+    """Cumulative P − ET₀ over last 90 days."""
     df = df_hist.tail(90).copy()
     cum = df["water_balance_mm"].cumsum()
-    fig, ax = plt.subplots(figsize=(10, 2.8), facecolor="none")
-    ax.set_facecolor("none")
-    ax.plot(df["date"], cum, color="#e2e8f0", linewidth=1.8)
-    ax.fill_between(df["date"], cum, 0, where=(cum < 0), color="#ef4444", alpha=0.25, label="Moisture deficit")
-    ax.fill_between(df["date"], cum, 0, where=(cum >= 0), color="#38ef7d", alpha=0.18, label="Moisture surplus")
-    ax.axhline(0, color="white", linewidth=0.6, alpha=0.35)
+    fig, ax = plt.subplots(figsize=(8, 2.5), facecolor="none")
+    ax.plot(df["date"], cum, color="#94a3b8", linewidth=1.6, zorder=3)
+    ax.fill_between(df["date"], cum, 0, where=(cum < 0),
+                    color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
+    ax.fill_between(df["date"], cum, 0, where=(cum >= 0),
+                    color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
+    ax.axhline(0, color="white", linewidth=0.5, alpha=0.3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-    plt.xticks(rotation=30, color="white", fontsize=8)
-    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
-    ax.set_ylabel("mm cumulative", color="white", fontsize=9)
-    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+    _ax_style(ax)
+    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
+    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
     return fig
 
 
@@ -988,53 +1002,127 @@ with tab_history:
         st.warning(f"No data. {weather_error or ''}")
     else:
         df90 = df_weather.tail(90)
+        t_lo, t_hi = cal["optimal_temp"]
 
+        # ── Pre-compute insights ─────────────────────────────────────────
+        df_m = df_weather.tail(180).copy()
+        df_m["ym"] = df_m["date"].dt.to_period("M")
+        monthly_sum = df_m.groupby("ym").agg(
+            rain=("precip_mm","sum"), n=("precip_mm","count")).reset_index()
+        monthly_sum["need"] = monthly_sum.apply(
+            lambda r: cal["daily_demand_mm"]*r["n"] if _is_active(cal, r["ym"].month) else 0, axis=1)
+        active_months = monthly_sum[monthly_sum["need"] > 0]
+
+        total_rain_90  = float(df90["precip_mm"].sum())
+        total_et0_90   = float(df90["et0_mm"].sum())
+        total_need_90  = cal["daily_demand_mm"] * len(df90)
+        cum_deficit_90 = max(0.0, total_et0_90 - total_rain_90)
+        avg_temp_90    = float(df90["temp_c"].mean())
+        days_above_opt = int((df90["temp_c"] > t_hi).sum())
+        dry_days_90    = int((df90["precip_mm"] < 1.0).sum())
+
+        if not active_months.empty:
+            worst_row = active_months.loc[active_months["rain"].idxmin()]
+            worst_month_name = worst_row["ym"].strftime("%B %Y")
+            worst_pct = min(100, (worst_row["rain"] / (worst_row["need"]+1e-6)) * 100)
+            deficit_months = int((active_months["rain"] < active_months["need"] * 0.8).sum())
+        else:
+            worst_month_name, worst_pct, deficit_months = "—", 0, 0
+
+        # cumulative balance trend
+        cum_series = df90["water_balance_mm"].cumsum()
+        trend_dir  = "worsening 📉" if cum_series.iloc[-1] < cum_series.iloc[len(cum_series)//2] else "stabilising 📊"
+
+        # ── SECTION 1: Monthly rainfall ──────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.subheader("Monthly Rainfall vs Crop Water Requirement")
-        st.caption("Blue bars = actual rain. Orange bars = what your crop needed. Red bars = months with critical deficit (< 50% of need).")
-        st.pyplot(_monthly_bar_chart(df_weather.tail(180), cal["daily_demand_mm"], cal), use_container_width=True)
+        c_chart, c_insight = st.columns([3, 2])
+        with c_chart:
+            fig_m = _monthly_bar_chart(df_weather.tail(180), cal["daily_demand_mm"], cal)
+            st.pyplot(fig_m, use_container_width=True); plt.close(fig_m)
+            st.caption("🟢 Adequate · 🟡 Below optimal · 🔴 Critical deficit · ⬛ Off-season  ╌╌  Dashed line = crop water need")
+        with c_insight:
+            st.markdown("**What this tells you**")
+            st.markdown(
+                f"Over the last 6 months, **{deficit_months}** active growing "
+                f"{'month' if deficit_months == 1 else 'months'} received less than 80% of "
+                f"what your **{crop_choice}** needed.\n\n"
+                f"The worst month was **{worst_month_name}**, which delivered only "
+                f"**{worst_pct:.0f}%** of the required rainfall.\n\n"
+                f"A bar touching or crossing the dashed green line means that month's rainfall "
+                f"was sufficient. Bars well below it represent water stress periods your crop had to endure."
+            )
+            if deficit_months >= 2:
+                st.error(f"⚠️ {deficit_months} months of deficit — cumulative stress is high.")
+            elif deficit_months == 1:
+                st.warning("One below-normal month detected. Watch the next rainfall closely.")
+            else:
+                st.success("Rainfall has been broadly adequate across recent months.")
         st.markdown("</div>", unsafe_allow_html=True)
 
+        # ── SECTION 2: Water balance ─────────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Cumulative Water Balance (Rain − Evaporation)")
-        st.caption("Orange shading = drought deficit zone where evaporation exceeded rainfall. Real ERA5 data.")
-        st.pyplot(_water_balance_chart(df_weather), use_container_width=True)
+        st.subheader("Cumulative Water Balance — Last 90 Days")
+        c_chart2, c_insight2 = st.columns([3, 2])
+        with c_chart2:
+            fig_wb = _water_balance_chart(df_weather)
+            st.pyplot(fig_wb, use_container_width=True); plt.close(fig_wb)
+            st.caption("Daily rainfall minus evaporation (ERA5 Penman-Monteith ET₀), cumulated over 90 days.")
+        with c_insight2:
+            st.markdown("**Reading the balance**")
+            st.markdown(
+                f"Total rainfall over 90 days: **{total_rain_90:.0f} mm**  \n"
+                f"Total evaporation demand: **{total_et0_90:.0f} mm**  \n"
+                f"Net moisture deficit: **{cum_deficit_90:.0f} mm**\n\n"
+                f"The balance is currently **{trend_dir}** — "
+                f"the line moving downward means more water is leaving the soil than arriving. "
+                f"A balance consistently below zero means your crop's roots have less water available "
+                f"each week."
+            )
+            if cum_deficit_90 > 150:
+                st.error("Severe moisture deficit. Irrigation is critical.")
+            elif cum_deficit_90 > 60:
+                st.warning("Moderate deficit building. Consider supplementary water.")
+            else:
+                st.success("Water balance is within manageable range.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        col_t, col_r = st.columns(2)
-        with col_t:
+        # ── SECTION 3: Temperature + Rain side-by-side ───────────────────
+        col_t_chart, col_r_chart = st.columns(2)
+
+        with col_t_chart:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.subheader("Temperature (last 90 days)")
-            fig_t, ax_t = plt.subplots(figsize=(6, 2.8), facecolor="none")
-            ax_t.set_facecolor("none")
-            ax_t.plot(df90["date"], df90["temp_c"], color="#f87171", linewidth=1.8)
-            t_lo, t_hi = cal["optimal_temp"]
-            ax_t.axhspan(t_lo, t_hi, alpha=0.12, color="#38ef7d",
-                         label=f"Optimal {t_lo}–{t_hi}°C")
+            st.subheader("Temperature — 90 Days")
+            fig_t, ax_t = plt.subplots(figsize=(5, 2.4), facecolor="none")
+            ax_t.plot(df90["date"], df90["temp_c"], color="#f87171", linewidth=1.5, zorder=3)
+            ax_t.axhspan(t_lo, t_hi, alpha=0.10, color="#38ef7d",
+                         label=f"Optimal {t_lo}–{t_hi}°C", zorder=2)
             ax_t.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-            ax_t.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-            plt.xticks(rotation=25, color="white", fontsize=7)
-            ax_t.tick_params(colors="white"); ax_t.spines[:].set_visible(False)
-            ax_t.set_ylabel("°C", color="white", fontsize=9)
-            ax_t.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+            ax_t.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
+            _ax_style(ax_t)
+            ax_t.set_ylabel("°C", color="#94a3b8", fontsize=8)
+            ax_t.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
             st.pyplot(fig_t, use_container_width=True); plt.close(fig_t)
+            heat_note = (f"🌡️ **{days_above_opt} days** above the {t_hi}°C optimum — "
+                         f"elevated evaporation stress." if days_above_opt > 5 else
+                         f"Temperature has stayed mostly within the optimal range for {crop_choice}.")
+            st.caption(heat_note)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with col_r:
+        with col_r_chart:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.subheader("Daily Rainfall (last 90 days)")
-            fig_r, ax_r = plt.subplots(figsize=(6, 2.8), facecolor="none")
-            ax_r.set_facecolor("none")
-            ax_r.bar(df90["date"], df90["precip_mm"], color="#60a5fa", alpha=0.75, width=0.9)
+            st.subheader("Daily Rain — 90 Days")
+            fig_r, ax_r = plt.subplots(figsize=(5, 2.4), facecolor="none")
+            ax_r.bar(df90["date"], df90["precip_mm"], color="#3b82f6", alpha=0.72, width=0.9, zorder=2)
             ax_r.axhline(cal["daily_demand_mm"], color="#38ef7d", linestyle="--",
-                         linewidth=1.3, label=f"Daily need ({cal['daily_demand_mm']} mm)")
+                         linewidth=1.3, label=f"Daily need ({cal['daily_demand_mm']} mm)", zorder=3)
             ax_r.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-            ax_r.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-            plt.xticks(rotation=25, color="white", fontsize=7)
-            ax_r.tick_params(colors="white"); ax_r.spines[:].set_visible(False)
-            ax_r.set_ylabel("mm", color="white", fontsize=9)
-            ax_r.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+            ax_r.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
+            _ax_style(ax_r)
+            ax_r.set_ylabel("mm", color="#94a3b8", fontsize=8)
+            ax_r.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
             st.pyplot(fig_r, use_container_width=True); plt.close(fig_r)
+            st.caption(f"**{dry_days_90}** days with less than 1 mm of rain in the last 90 days.")
             st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1051,41 +1139,85 @@ with tab_fc:
         fc_needed  = cal["daily_demand_mm"] * len(df_forecast)
         fc_pct     = min(150, (fc_precip / (fc_needed + 1e-6)) * 100)
 
-        c1, c2, c3 = st.columns(3)
-        bar_col = "#ef4444" if fc_pct < 50 else ("#f59e0b" if fc_pct < 80 else "#22c55e")
-        c1.metric("Forecast rain (14d)",      f"{fc_precip:.0f} mm")
-        c2.metric("Crop water need (14d)",    f"{fc_needed:.0f} mm",
-                  delta=f"{fc_pct:.0f}% of need covered",
-                  delta_color="normal" if fc_pct >= 80 else "inverse")
-        c3.metric("Projected water deficit",  f"{fc_deficit:.0f} mm",
-                  delta="critical" if fc_deficit > 80 else "low",
-                  delta_color="inverse" if fc_deficit > 80 else "normal")
+        # ── Pre-compute forecast insights ────────────────────────────────
+        good_days  = int((df_forecast["precip_mm"] >= cal["daily_demand_mm"]).sum())
+        ok_days    = int(((df_forecast["precip_mm"] >= cal["daily_demand_mm"]*0.5) &
+                          (df_forecast["precip_mm"] < cal["daily_demand_mm"])).sum())
+        bad_days   = len(df_forecast) - good_days - ok_days
+        best_idx   = df_forecast["precip_mm"].idxmax()
+        best_day   = df_forecast.loc[best_idx, "date"].strftime("%b %d")
+        best_rain  = float(df_forecast.loc[best_idx, "precip_mm"])
+        cum_fc     = df_forecast["water_balance_mm"].cumsum()
+        fc_trend   = ("improving 📈" if float(cum_fc.iloc[-1]) > float(cum_fc.iloc[len(cum_fc)//2])
+                      else "worsening 📉")
 
+        # ── Day-by-day chart + analysis ───────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Day-by-Day Forecast")
-        st.caption("Blue = day meets or exceeds your crop's daily water need. Red = deficit day.")
-        st.pyplot(_forecast_chart(df_forecast, cal["daily_demand_mm"], crop_choice),
-                  use_container_width=True)
+        st.subheader("14-Day Rainfall Forecast")
+        c_fc, c_fc_txt = st.columns([3, 2])
+        with c_fc:
+            st.pyplot(_forecast_chart(df_forecast, cal["daily_demand_mm"]),
+                      use_container_width=True)
+            st.caption("🟢 Meets daily crop need · 🟡 Partial (50–100%) · 🔴 Near-zero rain  ╌╌  Dashed = daily crop need")
+        with c_fc_txt:
+            st.markdown("**Forecast summary**")
+            pct_col = "#22c55e" if fc_pct >= 80 else ("#f59e0b" if fc_pct >= 50 else "#ef4444")
+            st.markdown(
+                f"Forecast rain: **{fc_precip:.0f} mm**  \n"
+                f"Crop water need: **{fc_needed:.0f} mm**  \n"
+                f"Needs covered: <span style='color:{pct_col};font-weight:700'>{fc_pct:.0f}%</span>",
+                unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown(
+                f"🟢 **{good_days}** adequate rain days  \n"
+                f"🟡 **{ok_days}** partial rain days  \n"
+                f"🔴 **{bad_days}** near-dry days  \n\n"
+                f"Best day: **{best_day}** ({best_rain:.1f} mm)  \n"
+                f"Balance trend: **{fc_trend}**")
+            if fc_pct < 50:
+                st.error("Forecast does not cover crop needs. Arrange irrigation.")
+            elif fc_pct < 80:
+                st.warning("Partial coverage. Monitor soil moisture closely.")
+            else:
+                st.success("Forecast should broadly meet crop water requirements.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Cumulative forecast trajectory
+        # ── Cumulative balance + analysis ─────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Cumulative Forecast Water Balance")
-        cum_fc = (df_forecast["water_balance_mm"]).cumsum()
-        fig_fc, ax_fc = plt.subplots(figsize=(10, 2.6), facecolor="none")
-        ax_fc.set_facecolor("none")
-        ax_fc.plot(df_forecast["date"], cum_fc, color="#a78bfa", linewidth=2)
-        ax_fc.fill_between(df_forecast["date"], cum_fc, 0,
-                           where=(cum_fc < 0), color="#ef4444", alpha=0.2, label="Deficit")
-        ax_fc.fill_between(df_forecast["date"], cum_fc, 0,
-                           where=(cum_fc >= 0), color="#38ef7d", alpha=0.15, label="Surplus")
-        ax_fc.axhline(0, color="white", linewidth=0.6, alpha=0.35)
-        ax_fc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-        plt.xticks(rotation=25, color="white", fontsize=8)
-        ax_fc.tick_params(colors="white"); ax_fc.spines[:].set_visible(False)
-        ax_fc.set_ylabel("mm cumulative", color="white", fontsize=9)
-        ax_fc.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
-        st.pyplot(fig_fc, use_container_width=True); plt.close(fig_fc)
+        st.subheader("Cumulative Water Balance — Next 14 Days")
+        c_cum, c_cum_txt = st.columns([3, 2])
+        with c_cum:
+            fig_cumfc, ax_cumfc = plt.subplots(figsize=(6, 2.4), facecolor="none")
+            ax_cumfc.plot(df_forecast["date"], cum_fc, color="#94a3b8", linewidth=1.6, zorder=3)
+            ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
+                                  where=(cum_fc < 0), color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
+            ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
+                                  where=(cum_fc >= 0), color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
+            ax_cumfc.axhline(0, color="white", linewidth=0.5, alpha=0.3)
+            ax_cumfc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+            ax_cumfc.xaxis.set_major_locator(mdates.DayLocator(interval=3))
+            _ax_style(ax_cumfc)
+            ax_cumfc.set_ylabel("mm", color="#94a3b8", fontsize=8)
+            ax_cumfc.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+            st.pyplot(fig_cumfc, use_container_width=True); plt.close(fig_cumfc)
+            st.caption("Cumulative (rain − evaporation) over the forecast window.")
+        with c_cum_txt:
+            st.markdown("**What this means**")
+            final_bal = float(cum_fc.iloc[-1])
+            st.markdown(
+                f"By day 14 the forecast adds a net water balance of **{final_bal:+.0f} mm**.\n\n")
+            if final_bal < -80:
+                st.markdown(
+                    f"The outlook **adds more drought stress**. Without irrigation, "
+                    f"**{crop_choice}** yield potential will continue to deteriorate.")
+            elif final_bal < 0:
+                st.markdown(
+                    "Evaporation outpaces rainfall but the deficit is modest. "
+                    "Soil reserves may buffer the impact short-term.")
+            else:
+                st.markdown(
+                    "Forecast conditions offer **some relief** — incoming rain should "
+                    "partially replenish soil moisture.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
