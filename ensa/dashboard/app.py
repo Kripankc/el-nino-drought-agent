@@ -199,27 +199,22 @@ def _is_active_season(cal: dict, month: int) -> bool:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CACHED DATA FETCHERS
+# Errors bubble up to the call site — never swallowed silently.
+# st.session_state must NOT be set inside @st.cache_data.
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _cached_weather(lat: float, lon: float) -> pd.DataFrame | None:
-    try:
-        return fetch_weather(lat, lon, days_back=400)
-    except Exception as e:
-        st.session_state["weather_error"] = str(e)
-        return None
+def _cached_weather(lat, lon):
+    return fetch_weather(lat, lon, days_back=400)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _cached_forecast(lat: float, lon: float) -> pd.DataFrame | None:
-    try:
-        return fetch_forecast(lat, lon, days=14)
-    except Exception as e:
-        return None
+def _cached_forecast(lat, lon):
+    return fetch_forecast(lat, lon, days=14)
 
 
 @st.cache_data(ttl=21600, show_spinner=False)
-def _cached_enso() -> dict:
+def _cached_enso():
     return fetch_current_oni()
 
 
@@ -311,9 +306,19 @@ st.sidebar.markdown(
 _lat_r = round(lat, 3)
 _lon_r = round(lon, 3)
 
+df_weather  = None
+df_forecast = None
+weather_error = None
+
 with st.spinner("Loading weather data for your location…"):
-    df_weather = _cached_weather(_lat_r, _lon_r)
-    df_forecast = _cached_forecast(_lat_r, _lon_r)
+    try:
+        df_weather = _cached_weather(_lat_r, _lon_r)
+    except Exception as e:
+        weather_error = str(e)
+    try:
+        df_forecast = _cached_forecast(_lat_r, _lon_r)
+    except Exception:
+        pass
     oni = _cached_enso()
 
 data_ok = df_weather is not None and not df_weather.empty
@@ -409,9 +414,10 @@ with tab_farm:
 
     if not data_ok:
         st.error(
-            "⚠️ Could not load weather data for this location. "
-            "This may be a temporary network issue. "
-            f"Error: {st.session_state.get('weather_error', 'Unknown')}"
+            f"⚠️ Could not load weather data for this location. "
+            f"Error: **{weather_error or 'empty response from API'}**\n\n"
+            "Check your internet connection and try again. "
+            "If the problem persists, try selecting a different location."
         )
         st.stop()
 
@@ -570,8 +576,8 @@ with tab_farm:
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_trends:
     if not data_ok:
-        st.warning("Weather data unavailable.")
-        st.stop()
+        st.warning(f"Weather data unavailable. {weather_error or ''}")
+        st.stop()  # noqa: safe inside tab
 
     df_plot = df_weather.tail(90).copy()
 
