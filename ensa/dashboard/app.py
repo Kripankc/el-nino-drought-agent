@@ -41,22 +41,121 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-  .stApp{background:linear-gradient(135deg,#060913 0%,#020307 100%);color:#e2e8f0;}
-  h1,h2,h3,h4{color:#fff;font-weight:700;letter-spacing:-.025em;}
-  .card{background:rgba(255,255,255,.03);border-radius:16px;padding:20px 24px;
-    border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 32px rgba(0,0,0,.45);margin-bottom:18px;}
-  .rec-item{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.06);margin-bottom:8px;font-size:.97rem;line-height:1.55;}
-  .stTabs [data-baseweb="tab-list"]{gap:20px;background:transparent;}
-  .stTabs [data-baseweb="tab"]{background:transparent;color:#a0aec0;font-weight:600;}
-  .stTabs [aria-selected="true"]{color:#38ef7d !important;border-bottom-color:#38ef7d !important;}
-  .kpi-label{font-size:.72rem;color:#a0aec0;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;}
-  .kpi-value{font-size:1.55rem;font-weight:700;color:#fff;}
-  .kpi-sub{font-size:.82rem;color:#a0aec0;margin-top:1px;}
-  .enso-chip{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.82rem;font-weight:700;}
-  .sat-bar-wrap{background:#1a1a2e;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 2px;}
-  .sat-bar-fill{height:100%;border-radius:8px;transition:width .4s;}
-  .stage-pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:600;margin:2px 3px;}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+*{font-family:'Plus Jakarta Sans',-apple-system,sans-serif!important;}
+
+/* ── App shell ────────────────────────────────── */
+.stApp{
+  background:radial-gradient(ellipse 90% 55% at 8% 0%,#061a0c 0%,#020905 52%,#010302 100%);
+  color:#e2ede6;
+}
+#MainMenu,footer,.stDeployButton{display:none!important;}
+
+/* ── Sidebar ────────────────────────────────────── */
+[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,#040e07 0%,#020803 100%)!important;
+  border-right:1px solid rgba(52,211,153,.1)!important;
+}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] label{color:#6aab80!important;font-size:.84rem!important;}
+[data-testid="stSidebar"] h2{color:#34d399!important;font-weight:800!important;}
+[data-testid="stSidebar"] h3{color:#6ee7b7!important;font-size:.74rem!important;
+  text-transform:uppercase!important;letter-spacing:.09em!important;}
+
+/* ── Typography ─────────────────────────────────── */
+h1,h2,h3,h4{color:#ecfdf5!important;font-weight:700!important;letter-spacing:-.025em!important;}
+p,.stMarkdown p{color:#a7c4b0!important;}
+
+/* ── Base card ───────────────────────────────────── */
+.card{
+  background:linear-gradient(135deg,rgba(10,38,20,.88) 0%,rgba(4,12,7,.94) 100%);
+  border:1px solid rgba(52,211,153,.13);
+  border-radius:18px;padding:22px 26px;margin-bottom:16px;
+  box-shadow:0 2px 20px rgba(0,0,0,.5);
+  transition:border-color .2s;
+}
+.card:hover{border-color:rgba(52,211,153,.24);}
+
+/* ── Hero risk band ──────────────────────────────── */
+.hero{border-radius:20px;padding:28px 32px;margin-bottom:20px;
+  border:1px solid rgba(255,255,255,.08);position:relative;overflow:hidden;}
+.hero-score{font-size:4.8rem;font-weight:800;line-height:1;letter-spacing:-.05em;}
+.hero-level{font-size:1.25rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;}
+.hero-summary{font-size:.97rem;line-height:1.7;color:rgba(255,255,255,.78);
+  margin-top:10px;max-width:660px;}
+.hero-glow{position:absolute;top:-60px;right:-60px;width:280px;height:280px;
+  border-radius:50%;filter:blur(80px);opacity:.25;pointer-events:none;}
+
+/* ── KPI grid ───────────────────────────────────── */
+.kpi{background:rgba(8,30,16,.75);border:1px solid rgba(52,211,153,.12);
+  border-radius:14px;padding:16px 18px;text-align:center;
+  transition:border-color .2s,transform .15s;}
+.kpi:hover{border-color:rgba(52,211,153,.28);transform:translateY(-2px);}
+.kpi-icon{font-size:1.5rem;margin-bottom:5px;display:block;}
+.kpi-lbl{font-size:.68rem;color:#52a874;text-transform:uppercase;
+  letter-spacing:.08em;margin-bottom:3px;}
+.kpi-val{font-size:1.6rem;font-weight:700;color:#ecfdf5;line-height:1.1;}
+.kpi-sub{font-size:.76rem;color:#5a8a6e;margin-top:3px;}
+.kpi-ok  {border-color:rgba(52,211,153,.28)!important;}
+.kpi-warn{border-color:rgba(251,191,36,.28)!important;}
+.kpi-bad {border-color:rgba(248,113,113,.28)!important;}
+
+/* ── Recommendation card ────────────────────────── */
+.rec{border-radius:12px;padding:13px 17px;margin-bottom:9px;
+  border-left:3px solid;font-size:.91rem;line-height:1.65;}
+.rec b{color:#ecfdf5;}
+.rec-crit{border-left-color:#ef4444;background:rgba(239,68,68,.07);}
+.rec-warn{border-left-color:#fbbf24;background:rgba(251,191,36,.07);}
+.rec-info{border-left-color:#34d399;background:rgba(52,211,153,.07);}
+
+/* ── Water satisfaction bar ─────────────────────── */
+.sat-wrap{background:rgba(255,255,255,.07);border-radius:7px;
+  height:14px;overflow:hidden;margin:6px 0 3px;}
+.sat-fill{height:100%;border-radius:7px;}
+
+/* ── Insight box ─────────────────────────────────── */
+.insight{background:rgba(6,22,12,.7);border:1px solid rgba(52,211,153,.12);
+  border-radius:14px;padding:18px 20px;font-size:.88rem;line-height:1.7;color:#8fbfa2;}
+.insight b{color:#ecfdf5;}
+.istat{font-size:1.7rem;font-weight:700;color:#34d399;line-height:1.1;display:block;}
+.istat-lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;
+  color:#52a874;display:block;margin-bottom:8px;}
+
+/* ── Tabs ────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"]{
+  gap:3px;background:rgba(8,30,16,.6);border-radius:13px;
+  padding:4px;border:1px solid rgba(52,211,153,.12);}
+.stTabs [data-baseweb="tab"]{border-radius:9px;color:#52a874;
+  font-weight:600;font-size:.86rem;padding:7px 18px;
+  background:transparent!important;border:none!important;}
+.stTabs [aria-selected="true"]{
+  background:rgba(52,211,153,.14)!important;
+  color:#34d399!important;border-bottom:none!important;}
+
+/* ── Section heading ─────────────────────────────── */
+.sec-head{font-size:.68rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:.11em;color:#34d399;margin-bottom:8px;}
+
+/* ── Inputs ─────────────────────────────────────── */
+.stSelectbox>div>div,.stNumberInput input,.stDateInput input{
+  background:rgba(8,30,16,.8)!important;
+  border-color:rgba(52,211,153,.18)!important;
+  color:#ecfdf5!important;border-radius:10px!important;}
+.stButton button{
+  background:linear-gradient(135deg,#065f34 0%,#047a43 100%)!important;
+  color:#ecfdf5!important;border:1px solid rgba(52,211,153,.3)!important;
+  border-radius:10px!important;font-weight:600!important;}
+.stButton button:hover{background:linear-gradient(135deg,#047a43 0%,#059955 100%)!important;}
+.stAlert{border-radius:12px!important;}
+
+/* ── Scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:#020803;}
+::-webkit-scrollbar-thumb{background:rgba(52,211,153,.25);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(52,211,153,.45);}
+
+/* ── Caption / helper text ─────────────────────────── */
+.stCaption{color:#466b57!important;font-size:.77rem!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -544,31 +643,110 @@ PRESETS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _gauge(score, color):
-    """Half-donut risk gauge."""
-    fig, ax = plt.subplots(figsize=(3.6, 2.2), facecolor="none")
+    """Premium half-donut risk gauge."""
+    fig, ax = plt.subplots(figsize=(3.4, 2.1), facecolor="none")
     ax.set_facecolor("none")
+    # Track
     θ = np.linspace(np.pi, 0, 300)
-    ax.plot(np.cos(θ), np.sin(θ), color="#1e2535", linewidth=22, solid_capstyle="round", zorder=1)
+    ax.plot(np.cos(θ), np.sin(θ), color="#0d2a18", linewidth=24, solid_capstyle="round", zorder=1)
+    # Value arc
     if score > 0:
-        θv = np.linspace(np.pi, np.pi - (min(score,100)/100)*np.pi, 300)
-        ax.plot(np.cos(θv), np.sin(θv), color=color, linewidth=22, solid_capstyle="round", zorder=2)
-    ax.text(0, 0.18, f"{score:.0f}", ha="center", va="center",
-            fontsize=38, fontweight="bold", color="white", zorder=3)
-    ax.text(0, -0.22, "/ 100  drought risk", ha="center", va="center",
-            fontsize=8.5, color="#a0aec0", zorder=3)
-    ax.set_xlim(-1.4, 1.4); ax.set_ylim(-0.55, 1.4); ax.axis("off")
+        θv = np.linspace(np.pi, np.pi - (min(score, 100)/100)*np.pi, 300)
+        ax.plot(np.cos(θv), np.sin(θv), color=color, linewidth=24,
+                solid_capstyle="round", alpha=0.92, zorder=2)
+    # Score text
+    ax.text(0, 0.16, f"{score:.0f}", ha="center", va="center",
+            fontsize=40, fontweight="800", color="#ecfdf5", zorder=3,
+            fontfamily="Plus Jakarta Sans")
+    ax.text(0, -0.26, "out of 100", ha="center", va="center",
+            fontsize=8, color="#52a874", zorder=3)
+    ax.set_xlim(-1.45, 1.45); ax.set_ylim(-0.52, 1.45); ax.axis("off")
     return fig
 
 
 def _ax_style(ax, xlabel_rotation=30):
-    """Consistent dark-theme chart style."""
+    """Consistent premium chart style."""
     ax.set_facecolor("none")
-    ax.tick_params(colors="#94a3b8", labelsize=8)
+    ax.tick_params(colors="#52a874", labelsize=7.5)
     ax.spines[:].set_visible(False)
-    ax.grid(axis="y", color="white", alpha=0.05, linewidth=0.6)
+    ax.grid(axis="y", color="#34d399", alpha=0.04, linewidth=0.5)
     plt.xticks(rotation=xlabel_rotation, ha="right")
     for lbl in ax.get_xticklabels() + ax.get_yticklabels():
-        lbl.set_color("#94a3b8")
+        lbl.set_color("#52a874")
+
+
+# ── HTML component helpers ────────────────────────────────────────────────────
+
+def _hero_html(score, level, color, emoji, summary, crop, stage, location,
+               satisfaction_pct, received_mm, needed_mm):
+    """Full-width hero card: risk score + summary + water bar."""
+    _bg = {
+        "Extreme": "rgba(120,20,20,.55)",
+        "Severe":  "rgba(110,50,10,.55)",
+        "Warning": "rgba(110,85,5,.5)",
+        "Watch":   "rgba(20,50,100,.5)",
+        "Normal":  "rgba(5,50,25,.55)",
+    }.get(level, "rgba(5,50,25,.55)")
+
+    bar_col = "#ef4444" if satisfaction_pct < 50 else ("#fbbf24" if satisfaction_pct < 80 else "#34d399")
+    bar_w   = min(100, max(0, satisfaction_pct))
+    sat_line = (
+        f"<div style='margin-top:18px'>"
+        f"<div style='font-size:.72rem;color:rgba(255,255,255,.5);text-transform:uppercase;"
+        f"letter-spacing:.09em;margin-bottom:6px'>Crop water needs met — last 90 days</div>"
+        f"<div style='background:rgba(255,255,255,.08);border-radius:7px;height:12px;overflow:hidden;max-width:480px'>"
+        f"<div style='width:{bar_w:.0f}%;height:100%;background:{bar_col};border-radius:7px'></div></div>"
+        f"<div style='font-size:.8rem;color:rgba(255,255,255,.5);margin-top:5px'>"
+        f"<b style='color:{bar_col}'>{satisfaction_pct:.0f}% met</b>"
+        f" · {received_mm:.0f} mm received · {needed_mm:.0f} mm needed</div>"
+        f"</div>"
+    ) if satisfaction_pct is not None else ""
+
+    return f"""
+<div class='hero' style='background:linear-gradient(135deg,{_bg} 0%,rgba(4,12,7,.95) 100%)'>
+  <div class='hero-glow' style='background:{color}'></div>
+  <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>
+    <span style='font-size:.72rem;font-weight:700;text-transform:uppercase;
+      letter-spacing:.12em;color:rgba(255,255,255,.5)'>Drought Risk Score</span>
+    <span style='font-size:.72rem;font-weight:600;padding:2px 10px;border-radius:20px;
+      background:rgba(255,255,255,.08);color:rgba(255,255,255,.6)'>{location}</span>
+  </div>
+  <div style='display:flex;align-items:baseline;gap:14px;flex-wrap:wrap'>
+    <span class='hero-score' style='color:{color}'>{score:.0f}</span>
+    <div>
+      <div class='hero-level' style='color:{color}'>{emoji} {level} Risk</div>
+      <div style='font-size:.84rem;color:rgba(255,255,255,.5);margin-top:2px'>
+        {crop} &nbsp;·&nbsp; {stage}
+      </div>
+    </div>
+  </div>
+  <p class='hero-summary'>{summary}</p>
+  {sat_line}
+</div>"""
+
+
+def _kpi_tile(icon, label, value, sub, status="ok"):
+    return (f"<div class='kpi kpi-{status}'>"
+            f"<span class='kpi-icon'>{icon}</span>"
+            f"<div class='kpi-lbl'>{label}</div>"
+            f"<div class='kpi-val'>{value}</div>"
+            f"<div class='kpi-sub'>{sub}</div></div>")
+
+
+def _rec_html(text, severity="info"):
+    cls = {"critical": "rec-crit", "warning": "rec-warn", "info": "rec-info"}.get(severity, "rec-info")
+    return f"<div class='rec {cls}'>{text}</div>"
+
+
+def _insight_stats(*stats):
+    """Render a row of (value, label) pairs inside an insight box."""
+    items = "".join(
+        f"<div style='text-align:center;padding:8px 14px'>"
+        f"<span class='istat'>{v}</span>"
+        f"<span class='istat-lbl'>{l}</span></div>"
+        for v, l in stats
+    )
+    return f"<div style='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px'>{items}</div>"
 
 
 def _monthly_bar_chart(df_hist, daily_demand_mm, cal):
@@ -795,34 +973,34 @@ with st.spinner("Fetching real weather data from Open-Meteo ERA5…"):
 data_ok = df_weather is not None and not df_weather.empty
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HEADER
+# PAGE HEADER  (lean — details live in the hero card below)
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown(
-    "<h1 style='background:linear-gradient(90deg,#38ef7d,#11998e);"
-    "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>"
-    "El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
-st.markdown(
-    f"<p style='color:#a0aec0;font-size:1.0rem;margin-top:-8px'>"
-    f"Agricultural drought early-warning · {active_region} · "
-    f"All data live from Open-Meteo ERA5 & NOAA CPC</p>", unsafe_allow_html=True)
-
-# ENSO BANNER
 oni_v = oni["value"]
-if oni_v >= 1.5:   enso_bg, enso_txt = "#7f1d1d","#fca5a5"
-elif oni_v >= 0.5: enso_bg, enso_txt = "#78350f","#fcd34d"
-elif oni_v <= -0.5:enso_bg, enso_txt = "#1e3a5f","#93c5fd"
-else:              enso_bg, enso_txt = "#14532d","#86efac"
-
 live_tag = "🔴 LIVE" if "Offline" not in oni["source"] else "⚫ OFFLINE"
+
+# Compact top-bar: wordmark + ENSO pill
+if oni_v >= 1.5:   ep_bg, ep_col = "rgba(127,29,29,.7)","#fca5a5"
+elif oni_v >= 0.5: ep_bg, ep_col = "rgba(120,53,15,.7)","#fcd34d"
+elif oni_v <= -0.5:ep_bg, ep_col = "rgba(23,45,90,.7)", "#93c5fd"
+else:              ep_bg, ep_col = "rgba(5,50,22,.7)",  "#6ee7b7"
+
 st.markdown(
-    f"<div style='background:{enso_bg};border-radius:10px;padding:10px 18px;"
-    f"margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap'>"
-    f"<span class='enso-chip' style='background:rgba(255,255,255,.15);color:{enso_txt}'>"
-    f"NINO3.4: {oni_v:+.2f}°C</span>"
-    f"<span style='color:{enso_txt};font-weight:700'>{oni['phase']}</span>"
-    f"<span style='color:rgba(255,255,255,.55);font-size:.83rem'>"
-    f"{live_tag} · {oni['month_name']} {oni['year']} · {oni['source']}</span>"
-    f"</div>", unsafe_allow_html=True)
+    "<div style='display:flex;align-items:center;justify-content:space-between;"
+    "flex-wrap:wrap;gap:10px;margin-bottom:16px'>"
+    "<div>"
+    "<span style='font-size:1.45rem;font-weight:800;color:#ecfdf5;"
+    "letter-spacing:-.03em'>ENSA</span>"
+    "<span style='font-size:.82rem;color:#52a874;margin-left:10px;"
+    "font-weight:500'>El Niño Sentinel Agent · Agricultural Drought Early-Warning</span>"
+    "</div>"
+    f"<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap'>"
+    f"<span style='background:{ep_bg};color:{ep_col};font-size:.78rem;font-weight:700;"
+    f"padding:5px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.1)'>"
+    f"NINO3.4 {oni_v:+.2f}°C &nbsp; {oni['phase']}</span>"
+    f"<span style='font-size:.74rem;color:#466b57'>{live_tag} · {oni['month_name']} {oni['year']}</span>"
+    "</div></div>",
+    unsafe_allow_html=True,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
@@ -834,16 +1012,64 @@ tab_status, tab_history, tab_fc, tab_about = st.tabs([
 # TAB 1: FARM STATUS
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_status:
-    col_map, col_info = st.columns([3,1])
+
+    if not data_ok:
+        st.error(
+            f"**Could not load weather data.**  \n"
+            f"Error: `{weather_error or 'empty API response'}`  \n"
+            "Check your internet connection or try a different location.")
+        st.stop()
+
+    # ── Compute everything first ──────────────────────────────────────────
+    a_dt = pd.Timestamp(assessment_date)
+    if is_fc_mode and df_forecast is not None and not df_forecast.empty:
+        df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
+    else:
+        df_all = df_weather.copy()
+    df_slice  = df_all[df_all["date"] <= a_dt]
+    assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
+
+    score = assessment["score"]
+    level = assessment["alert_level"]
+    color = assessment["alert_color"]
+    emoji = assessment["alert_emoji"]
+
+    tail90     = df_slice.tail(90)
+    precip_90  = float(tail90["precip_mm"].sum())
+    et0_90     = float(tail90["et0_mm"].sum())
+    deficit_90 = max(0.0, et0_90 - precip_90)
+    temp_90    = float(tail90["temp_c"].mean())
+    opt_t_lo, opt_t_hi = cal["optimal_temp"]
+
+    if is_active:
+        needed           = cal["daily_demand_mm"] * len(tail90)
+        satisfaction_pct = min(150.0, (precip_90 / (needed + 1e-6)) * 100)
+    else:
+        needed = 0; satisfaction_pct = None
+
+    summary_text = generate_summary(
+        assessment, crop_choice, crop_stage, oni["phase"], st.session_state.preset_name)
+
+    # ── ROW 1: Hero card (full width) ────────────────────────────────────
+    st.markdown(
+        _hero_html(score, level, color, emoji, summary_text,
+                   crop_choice, crop_stage, st.session_state.preset_name,
+                   satisfaction_pct if satisfaction_pct is not None else 0,
+                   precip_90, needed),
+        unsafe_allow_html=True)
+
+    # ── ROW 2: Map  |  Gauge  |  KPI grid ────────────────────────────────
+    col_map, col_gauge, col_kpis = st.columns([3, 1.4, 2.6])
 
     with col_map:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("📍 Select Your Farm")
-        st.caption("Click the map to move the pin to your farm location.")
-        m = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
+        st.markdown("<div class='card' style='padding:14px 16px'>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-head'>📍 Farm Location</div>", unsafe_allow_html=True)
+        st.caption("Click map to reposition")
+        m_map = folium.Map(location=[lat, lon], zoom_start=7,
+                           tiles="CartoDB dark_matter")
         folium.Marker([lat, lon], tooltip=f"{lat:.4f}°, {lon:.4f}°",
-                      icon=folium.Icon(color="green", icon="leaf")).add_to(m)
-        map_out = st_folium(m, height=300, use_container_width=True, key="main_map")
+                      icon=folium.Icon(color="green", icon="leaf")).add_to(m_map)
+        map_out = st_folium(m_map, height=270, use_container_width=True, key="main_map")
         if map_out and map_out.get("last_clicked"):
             clat = map_out["last_clicked"]["lat"]
             clon = map_out["last_clicked"]["lng"]
@@ -853,123 +1079,82 @@ with tab_status:
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_info:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-label'>Detected Region</div><div class='kpi-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Crop</div><div class='kpi-value' style='font-size:1.05rem'>{crop_choice}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Stage · {assessment_date.strftime('%b %Y')}</div><div class='kpi-value' style='font-size:.92rem'>{crop_stage}</div>", unsafe_allow_html=True)
-        if is_fc_mode:    st.info("🔮 Forecast mode")
-        elif not is_active: st.warning("Off-season / Fallow")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    if not data_ok:
-        st.error(f"**Could not load weather data.**\n\nError: `{weather_error or 'empty API response'}`\n\nCheck your internet connection, or try a different location.")
-        st.stop()
-
-    # Slice to assessment date
-    a_dt = pd.Timestamp(assessment_date)
-    if is_fc_mode and df_forecast is not None and not df_forecast.empty:
-        df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
-    else:
-        df_all = df_weather.copy()
-    df_slice = df_all[df_all["date"] <= a_dt]
-
-    assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
-    score  = assessment["score"]
-    level  = assessment["alert_level"]
-    color  = assessment["alert_color"]
-    emoji  = assessment["alert_emoji"]
-
-    tail90 = df_slice.tail(90)
-    precip_90  = float(tail90["precip_mm"].sum())
-    et0_90     = float(tail90["et0_mm"].sum())
-    deficit_90 = max(0.0, et0_90 - precip_90)
-    temp_90    = float(tail90["temp_c"].mean())
-
-    # Water satisfaction (how much of crop need was met by rain)
-    if is_active:
-        needed = cal["daily_demand_mm"] * len(tail90)
-        satisfaction_pct = min(150.0, (precip_90 / (needed + 1e-6)) * 100)
-    else:
-        needed = 0; satisfaction_pct = None
-
-    # ── RISK GAUGE + SUMMARY ─────────────────────────────────────────────
-    col_gauge, col_summary = st.columns([1, 3])
     with col_gauge:
-        st.markdown("<div class='card' style='text-align:center'>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='card' style='text-align:center;padding:18px 12px'>",
+            unsafe_allow_html=True)
+        st.markdown("<div class='sec-head'>Risk Score</div>", unsafe_allow_html=True)
         st.pyplot(_gauge(score, color), use_container_width=True)
-        st.markdown(f"<div style='text-align:center;color:{color};font-weight:700;font-size:1.1rem'>{emoji} {level}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='color:{color};font-weight:700;font-size:.95rem;"
+            f"text-align:center;margin-top:4px'>{emoji} {level}</div>"
+            f"<div style='color:#466b57;font-size:.74rem;text-align:center;"
+            f"margin-top:2px'>{active_region} · {assessment_date.strftime('%b %Y')}</div>",
+            unsafe_allow_html=True)
+        if is_fc_mode:
+            st.markdown("<div style='color:#38bdf8;font-size:.76rem;text-align:center;margin-top:6px'>🔮 Forecast mode</div>", unsafe_allow_html=True)
+        elif not is_active:
+            st.markdown("<div style='color:#fbbf24;font-size:.76rem;text-align:center;margin-top:6px'>⚠️ Off-season</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_summary:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
-                                        st.session_state.preset_name)
-        st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
-                    unsafe_allow_html=True)
+    with col_kpis:
+        st.markdown("<div class='sec-head' style='margin-top:6px'>Key Indicators — last 90 days (ERA5)</div>", unsafe_allow_html=True)
+        rain_ok  = precip_90 >= cal["daily_demand_mm"] * 90 * 0.7
+        def_ok   = deficit_90 < 100
+        temp_ok  = opt_t_lo <= temp_90 <= opt_t_hi + 2
+        spi_ok   = assessment["spi3"] >= -1.0
+        kpi_html = (
+            "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>"
+            + _kpi_tile("🌧️", "Rainfall 90d", f"{precip_90:.0f} mm",
+                        f"Need {cal['daily_demand_mm']*90:.0f} mm", "ok" if rain_ok else "bad")
+            + _kpi_tile("💧", "Water Deficit", f"{deficit_90:.0f} mm",
+                        f"Evap demand {et0_90:.0f} mm", "ok" if def_ok else "bad")
+            + _kpi_tile("🌡️", "Mean Temp", f"{temp_90:.1f}°C",
+                        f"Optimal {opt_t_lo}–{opt_t_hi}°C", "ok" if temp_ok else "warn")
+            + _kpi_tile("📊", "SPI-3", f"{assessment['spi3']:+.2f}",
+                        "< –1.0 = drought onset", "ok" if spi_ok else "bad")
+            + "</div>"
+        )
+        st.markdown(kpi_html, unsafe_allow_html=True)
 
-        if satisfaction_pct is not None:
-            bar_color = "#ef4444" if satisfaction_pct < 50 else ("#f59e0b" if satisfaction_pct < 80 else "#22c55e")
-            bar_w = min(100, satisfaction_pct)
-            st.markdown(
-                f"<div style='margin-top:14px'>"
-                f"<div class='kpi-label'>Crop Water Needs Met (last 90 days)</div>"
-                f"<div class='sat-bar-wrap'><div class='sat-bar-fill' style='width:{bar_w:.0f}%;background:{bar_color}'></div></div>"
-                f"<div style='font-size:.85rem;color:#a0aec0'>"
-                f"Rain received: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
-                f"Crop needed: <b style='color:#fff'>{needed:.0f} mm</b> · "
-                f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}% met</b></div>"
-                f"</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── CROP CALENDAR STRIP ──────────────────────────────────────────────
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("📅 Crop Growth Calendar")
-    st.caption("Green = growing · Red = critical water stage · Orange = harvesting · Dark = fallow. Border = current month.")
+    # ── ROW 3: Crop calendar (full width) ───────────────────────────────
+    st.markdown("<div class='card' style='padding:16px 22px;margin-top:4px'>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-head'>📅 Crop Growth Calendar</div>", unsafe_allow_html=True)
     st.pyplot(_crop_calendar_strip(cal, a_month), use_container_width=True)
+    st.caption("🟢 Growing  🔴 Critical water stage  🟡 Harvesting  ⬛ Fallow  — outlined = current month")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── 4 METRIC CARDS ──────────────────────────────────────────────────
-    opt_t_lo, opt_t_hi = cal["optimal_temp"]
-    st.markdown("### Key Indicators (last 90 days — real ERA5 data)")
-    m1, m2, m3, m4 = st.columns(4)
+    # ── ROW 4: Recommendations  |  AI expander ───────────────────────────
+    col_recs, col_ai = st.columns([3, 2])
 
-    def _kpi(col, label, val, sub, ok):
-        dot = "🟢" if ok else "🔴"
-        col.markdown(f"<div class='card'><div class='kpi-label'>{label}</div>"
-                     f"<div class='kpi-value'>{val}</div>"
-                     f"<div class='kpi-sub'>{dot} {sub}</div></div>", unsafe_allow_html=True)
+    with col_recs:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-head'>What to do now</div>", unsafe_allow_html=True)
+        recs = generate_recommendations(assessment, crop_choice, crop_stage, oni_v)
+        for r in recs:
+            sev = "critical" if "🚿" in r or "🌊" in r or "🚨" in r else (
+                  "warning"  if "💧" in r or "🐛" in r or "🌾" in r else "info")
+            st.markdown(_rec_html(r, sev), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    _kpi(m1,"Rainfall (90d)", f"{precip_90:.0f} mm",
-         f"Need: {cal['daily_demand_mm']*90:.0f} mm for full season",
-         precip_90 >= cal["daily_demand_mm"] * 90 * 0.7)
-    _kpi(m2,"Water Deficit (90d)", f"{deficit_90:.0f} mm",
-         f"Evaporation demand: {et0_90:.0f} mm",
-         deficit_90 < 100)
-    _kpi(m3,"Mean Temperature", f"{temp_90:.1f} °C",
-         f"Optimal: {opt_t_lo}–{opt_t_hi}°C",
-         opt_t_lo <= temp_90 <= opt_t_hi + 2)
-    _kpi(m4,"SPI-3 Index", f"{assessment['spi3']:+.2f}",
-         "< –1.0 = drought · < –2.0 = severe",
-         assessment["spi3"] >= -1.0)
-
-    # ── RECOMMENDATIONS ──────────────────────────────────────────────────
-    st.markdown("### What to do")
-    for rec in generate_recommendations(assessment, crop_choice, crop_stage, oni_v):
-        st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
-
-    # ── AI ANALYSIS ──────────────────────────────────────────────────────
-    with st.expander("🤖 AI-Enhanced Analysis (optional)"):
-        st.caption("Paste your Anthropic or OpenAI key in the sidebar to unlock.")
-        if st.button("Generate AI Analysis", disabled=not bool(ai_key)):
-            provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
-            with st.spinner("Asking AI…"):
-                txt = call_llm_narrative(assessment, crop_choice, crop_stage, oni,
-                                         st.session_state.preset_name, ai_key, provider)
-            st.markdown(txt)
-
-    # ── SAVE ────────────────────────────────────────────────────────────
-    with st.expander("💾 Save this assessment"):
+    with col_ai:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown("<div class='sec-head'>🤖 AI-Enhanced Analysis</div>", unsafe_allow_html=True)
+        st.caption(
+            "The core dashboard is 100% free. Optionally paste your "
+            "Anthropic or OpenAI key in the sidebar for a richer AI-written assessment.")
+        if ai_key:
+            if st.button("Generate AI Analysis"):
+                provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
+                with st.spinner("Asking AI…"):
+                    txt = call_llm_narrative(
+                        assessment, crop_choice, crop_stage, oni,
+                        st.session_state.preset_name, ai_key, provider)
+                st.markdown(txt)
+        else:
+            st.info("Add your API key in the sidebar (section 4) to enable AI analysis.")
+        st.markdown("---")
+        st.markdown("<div class='sec-head'>💾 Save Assessment</div>", unsafe_allow_html=True)
         if st.button("Save to local database"):
             try:
                 init_db()
@@ -977,21 +1162,22 @@ with tab_status:
                 c = conn.cursor()
                 c.execute("INSERT OR IGNORE INTO regional_targets "
                           "(region_name,country,crop_type,bbox_coords,is_scheduled) VALUES(?,?,?,?,?)",
-                          (st.session_state.preset_name, active_region, crop_choice, f"{lon},{lat}", 0))
-                c.execute("INSERT INTO self_correction_journal "
-                          "(journal_date,assessment_period,target_district,raw_pdsi_forecast,"
-                          "observed_pdsi,forecast_rmse,agent_reasoning,parameter_adjustments)"
-                          " VALUES(?,?,?,?,?,?,?,?)",
-                          (datetime.now().strftime("%Y-%m-%d"), "Manual",
-                           st.session_state.preset_name, assessment["spi3"],
-                           -deficit_90/100, abs(score-50),
-                           generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
-                                            st.session_state.preset_name),
-                           f'{{"score":{score},"level":"{level}","oni":{oni_v}}}'))
+                          (st.session_state.preset_name, active_region, crop_choice,
+                           f"{lon},{lat}", 0))
+                c.execute(
+                    "INSERT INTO self_correction_journal "
+                    "(journal_date,assessment_period,target_district,raw_pdsi_forecast,"
+                    "observed_pdsi,forecast_rmse,agent_reasoning,parameter_adjustments)"
+                    " VALUES(?,?,?,?,?,?,?,?)",
+                    (datetime.now().strftime("%Y-%m-%d"), "Manual",
+                     st.session_state.preset_name, assessment["spi3"],
+                     -deficit_90/100, abs(score-50), summary_text,
+                     f'{{"score":{score},"level":"{level}","oni":{oni_v}}}'))
                 conn.commit(); conn.close()
                 st.success("Saved!")
             except Exception as e:
                 st.error(f"Save failed: {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
