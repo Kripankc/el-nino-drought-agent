@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from ensa.core.interfaces import BaseIngestor
-from ensa.config import CDS_API_KEY, CDS_API_URL
+import os
+CDS_API_KEY = os.getenv("CDS_API_KEY", "")
+CDS_API_URL = os.getenv("CDS_API_URL", "https://cds.climate.copernicus.eu/api/v2")
 
 class ECMWFIngestor(BaseIngestor):
     """
