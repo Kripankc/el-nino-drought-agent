@@ -1,2 +1,2 @@
-from ensa.ingest.ecmwf import ECMWFIngestor
-from ensa.ingest.gdo_wcs import GDOWCSIngestor
+from ensa.ingest.openmeteo import fetch_weather, fetch_forecast
+from ensa.ingest.enso import fetch_current_oni
