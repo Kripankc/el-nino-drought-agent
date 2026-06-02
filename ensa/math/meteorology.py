@@ -47,8 +47,8 @@ def calculate_penman_monteith_pet(temp_c):
     Formula: PET = 0.0023 * Ra * (Temp + 17.8) * sqrt(Td)
     """
     # Standard extraterrestrial radiation Ra for Southern Africa latitude (~15S)
-    ra = 38.2 
-    td = np.random.uniform(8.0, 15.0, len(temp_c)) # Diurnal temp range simulation
+    ra = 38.2
+    td = np.full(len(temp_c), 11.0)  # typical diurnal range for Southern Africa
     pet = 0.0023 * ra * (temp_c + 17.8) * np.sqrt(td)
     return np.round(pet, 2)
 

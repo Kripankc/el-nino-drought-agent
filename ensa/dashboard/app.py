@@ -1,1112 +1,757 @@
+"""
+ENSA — El Niño Sentinel Agent
+Farmer-facing drought early-warning dashboard.
+All weather data: Open-Meteo (free, no key).
+ENSO data: NOAA CPC (free, no key).
+LLM narrative: optional — user supplies their own API key.
+"""
 import sys
 import os
-# Append the repository root to Python path to ensure clean imports on Streamlit Cloud
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-import importlib
-# Force-reload ENSA modules on every run to bypass Streamlit server process caching!
-import ensa.config
-importlib.reload(ensa.config)
-from ensa.config import DB_PATH, ZAMBIA_BBOX
-
-import ensa.db.connection
-importlib.reload(ensa.db.connection)
-from ensa.db.connection import get_db_connection
-
-import ensa.agent.synchronizer
-importlib.reload(ensa.agent.synchronizer)
-from ensa.agent.synchronizer import BatchSynchronizer
-
-import ensa.eo.stac_s2
-importlib.reload(ensa.eo.stac_s2)
-from ensa.eo.stac_s2 import Sentinel2Processor
-
-import ensa.agent.brain
-importlib.reload(ensa.agent.brain)
-from ensa.agent.brain import ENSABrain
 
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import Draw
-import json
-import sqlite3
 import pandas as pd
-from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
 
-# ----------------- PAGE CONFIG -----------------
+from ensa.ingest.openmeteo import fetch_weather, fetch_forecast
+from ensa.ingest.enso import fetch_current_oni
+from ensa.agent.brain import (
+    compute_drought_score,
+    generate_summary,
+    generate_recommendations,
+    call_llm_narrative,
+)
+from ensa.db.connection import get_db_connection, init_db
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ENSA — Geospatial Calibration Platform",
-    page_icon="🛰️",
+    page_title="ENSA — Drought Early Warning",
+    page_icon="🌾",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom Premium Dark Glassmorphic Styling
+# ─────────────────────────────────────────────────────────────────────────────
+# CSS — dark glassmorphic theme, kept clean
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #060913 0%, #020307 100%);
-        color: #e2e8f0;
-        font-family: 'Inter', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #ffffff;
-        font-weight: 700;
-        letter-spacing: -0.025em;
-    }
-    .glass-card {
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 16px;
-        padding: 24px;
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(12px);
-        margin-bottom: 22px;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        background-color: transparent;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: transparent;
-        border-radius: 4px;
-        color: #a0aec0;
-        font-weight: 600;
-    }
-    .stTabs [aria-selected="true"] {
-        color: #38ef7d !important;
-        border-bottom-color: #38ef7d !important;
-    }
-    .badge {
-        border-radius: 8px;
-        padding: 6px 12px;
-        font-weight: bold;
-        font-size: 0.85rem;
-        display: inline-block;
-    }
-    .badge-extreme {
-        background: linear-gradient(135deg, #ff4b4b 0%, #9e0b0b 100%);
-        color: white;
-        box-shadow: 0 4px 12px rgba(255, 75, 75, 0.4);
-    }
-    .badge-severe {
-        background: linear-gradient(135deg, #f7931e 0%, #b85b00 100%);
-        color: white;
-        box-shadow: 0 4px 12px rgba(247, 147, 30, 0.4);
-    }
-    .badge-moderate {
-        background: linear-gradient(135deg, #fbb03b 0%, #a16b00 100%);
-        color: white;
-        box-shadow: 0 4px 12px rgba(251, 176, 59, 0.4);
-    }
-    .badge-normal {
-        background: linear-gradient(135deg, #39b54a 0%, #1c6b24 100%);
-        color: white;
-        box-shadow: 0 4px 12px rgba(57, 181, 74, 0.4);
-    }
-    .temporal-banner-future {
-        background: linear-gradient(90deg, #8a2387 0%, #e94057 50%, #f27121 100%);
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-weight: bold;
-        margin-bottom: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .temporal-banner-past {
-        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
-        padding: 10px 20px;
-        border-radius: 8px;
-        font-weight: bold;
-        margin-bottom: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .provenance-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-        background: rgba(255, 255, 255, 0.01);
-        border: 1px solid rgba(255, 255, 255, 0.07);
-    }
-    .provenance-table th {
-        background: rgba(255, 255, 255, 0.05);
-        color: #ffffff;
-        padding: 10px;
-        text-align: left;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        font-size: 0.9rem;
-    }
-    .provenance-table td {
-        padding: 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        font-size: 0.85rem;
-    }
-    .provenance-source-model {
-        color: #3498db;
-        font-weight: bold;
-    }
-    .provenance-source-satellite {
-        color: #2ecc71;
-        font-weight: bold;
-    }
+  .stApp { background: linear-gradient(135deg,#060913 0%,#020307 100%); color:#e2e8f0; }
+  h1,h2,h3,h4 { color:#fff; font-weight:700; letter-spacing:-.025em; }
+  .card {
+    background:rgba(255,255,255,.03); border-radius:16px; padding:20px 24px;
+    border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 8px 32px rgba(0,0,0,.45); margin-bottom:18px;
+  }
+  .risk-block {
+    border-radius:14px; padding:22px 28px; margin-bottom:18px;
+    border:1px solid rgba(255,255,255,.1);
+  }
+  .risk-score { font-size:3.6rem; font-weight:800; line-height:1; }
+  .risk-label { font-size:1.4rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .risk-summary { font-size:1.05rem; line-height:1.65; color:#e2e8f0; margin-top:12px; }
+  .rec-item { padding:10px 14px; border-radius:10px;
+    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
+    margin-bottom:8px; font-size:.97rem; line-height:1.5; }
+  .stTabs [data-baseweb="tab-list"] { gap:20px; background:transparent; }
+  .stTabs [data-baseweb="tab"] { background:transparent; color:#a0aec0; font-weight:600; }
+  .stTabs [aria-selected="true"] { color:#38ef7d !important;
+    border-bottom-color:#38ef7d !important; }
+  .data-label { font-size:.75rem; color:#a0aec0; text-transform:uppercase;
+    letter-spacing:.06em; margin-bottom:2px; }
+  .data-value { font-size:1.6rem; font-weight:700; color:#fff; }
+  .data-sub   { font-size:.83rem; color:#a0aec0; margin-top:1px; }
+  .enso-chip {
+    display:inline-block; padding:4px 12px; border-radius:20px;
+    font-size:.82rem; font-weight:700; letter-spacing:.03em;
+  }
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- PRESET COORDINATES -----------------
+# ─────────────────────────────────────────────────────────────────────────────
+# CONSTANTS
+# ─────────────────────────────────────────────────────────────────────────────
 PRESETS = {
-    "Mazabuka, Zambia (Southern Africa)": {"coords": [-16.25, 27.65], "region": "Zambia"},
-    "Punjab, India (Indo-Gangetic Plain)": {"coords": [30.90, 75.85], "region": "India"},
-    "Eldoret, Kenya (East Africa)": {"coords": [0.51, 35.26], "region": "East Africa"},
-    "Griffith, Australia (Murray-Darling)": {"coords": [-34.28, 146.04], "region": "Australia"},
-    "Custom Point": {"coords": [-16.25, 27.65], "region": "Custom"}
+    "Mazabuka, Zambia":           {"coords": [-16.25, 27.65], "region": "Zambia"},
+    "Punjab, India":              {"coords": [30.90,  75.85], "region": "India"},
+    "Eldoret, Kenya":             {"coords": [0.51,   35.26], "region": "East Africa"},
+    "Griffith, Australia":        {"coords": [-34.28, 146.04], "region": "Australia"},
+    "Choma, Zambia":              {"coords": [-16.82, 26.98], "region": "Zambia"},
+    "Custom Point":               {"coords": [-16.25, 27.65], "region": "Zambia"},
 }
 
-# ----------------- DYNAMIC REGIONAL CROP CALENDARS -----------------
 CROP_CALENDARS = {
     "Zambia": {
         "White Maize": {
-            "start_month": 11,
-            "end_month": 5,
-            "base_daily_demand": 5.0,
-            "optimal_temp": (20.0, 28.0),
-            "optimal_precip": (4.5, 6.5),
+            "start": 11, "end": 5, "daily_demand_mm": 5.0,
+            "optimal_temp": (20, 28), "optimal_precip_mm_day": (4.5, 6.5),
             "stages": {
-                11: "Planting & Emergence",
-                12: "Planting & Emergence",
-                1: "Vegetative Growth",
-                2: "Vegetative Growth",
-                3: "Flowering & Tasseling (Critical Stage)",
-                4: "Grain Fill & Maturity",
-                5: "Harvesting Phase",
-                6: "Fallow Period", 7: "Fallow Period", 8: "Fallow Period", 9: "Fallow Period", 10: "Fallow Period"
-            }
-        },
-        "Winter Wheat": {
-            "start_month": 5,
-            "end_month": 10,
-            "base_daily_demand": 4.5,
-            "optimal_temp": (15.0, 23.0),
-            "optimal_precip": (3.5, 5.5),
-            "stages": {
-                5: "Planting & Emergence",
-                6: "Vegetative Growth",
-                7: "Vegetative Growth",
-                8: "Flowering Stage (Critical)",
-                9: "Grain Fill",
-                10: "Harvesting Phase",
-                11: "Fallow Period", 12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period", 3: "Fallow Period", 4: "Fallow Period"
-            }
+                11:"Planting & Emergence", 12:"Planting & Emergence",
+                1:"Vegetative Growth", 2:"Vegetative Growth",
+                3:"Flowering & Tasseling (Critical)", 4:"Grain Fill & Maturity",
+                5:"Harvesting Phase",
+                6:"Fallow", 7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow",
+            },
         },
         "Sorghum / Millet": {
-            "start_month": 12,
-            "end_month": 6,
-            "base_daily_demand": 3.8,
-            "optimal_temp": (24.0, 32.0),
-            "optimal_precip": (3.0, 4.5),
+            "start": 12, "end": 6, "daily_demand_mm": 3.8,
+            "optimal_temp": (24, 32), "optimal_precip_mm_day": (3.0, 4.5),
             "stages": {
-                12: "Planting & Emergence",
-                1: "Vegetative Growth",
-                2: "Vegetative Growth",
-                3: "Vegetative Growth",
-                4: "Flowering Stage",
-                5: "Maturity",
-                6: "Harvesting Phase",
-                7: "Fallow Period", 8: "Fallow Period", 9: "Fallow Period", 10: "Fallow Period", 11: "Fallow Period"
-            }
-        }
+                12:"Planting & Emergence", 1:"Vegetative Growth", 2:"Vegetative Growth",
+                3:"Vegetative Growth", 4:"Flowering Stage", 5:"Maturity",
+                6:"Harvesting Phase",
+                7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow", 11:"Fallow",
+            },
+        },
     },
     "India": {
         "Kharif Rice": {
-            "start_month": 6,
-            "end_month": 11,
-            "base_daily_demand": 7.5,
-            "optimal_temp": (25.0, 33.0),
-            "optimal_precip": (6.5, 9.5),
+            "start": 6, "end": 11, "daily_demand_mm": 7.5,
+            "optimal_temp": (25, 33), "optimal_precip_mm_day": (6.5, 9.5),
             "stages": {
-                6: "Nursery & Transplanting",
-                7: "Tillering Stage",
-                8: "Panicle Initiation",
-                9: "Flowering Stage (Critical)",
-                10: "Grain Filling",
-                11: "Harvesting Phase",
-                12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period", 3: "Fallow Period", 4: "Fallow Period", 5: "Fallow Period"
-            }
+                6:"Nursery & Transplanting", 7:"Tillering",
+                8:"Panicle Initiation", 9:"Flowering (Critical)",
+                10:"Grain Filling", 11:"Harvesting Phase",
+                12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow", 5:"Fallow",
+            },
         },
         "Rabi Wheat": {
-            "start_month": 11,
-            "end_month": 4,
-            "base_daily_demand": 4.2,
-            "optimal_temp": (12.0, 22.0),
-            "optimal_precip": (2.0, 4.0),
+            "start": 11, "end": 4, "daily_demand_mm": 4.2,
+            "optimal_temp": (12, 22), "optimal_precip_mm_day": (2.0, 4.0),
             "stages": {
-                11: "Sowing & Germination",
-                12: "Crown Root Initiation",
-                1: "Tillering Stage",
-                2: "Jointing Stage",
-                3: "Heading & Flowering (Critical)",
-                4: "Harvesting Phase",
-                5: "Fallow Period", 6: "Fallow Period", 7: "Fallow Period", 8: "Fallow Period", 9: "Fallow Period", 10: "Fallow Period"
-            }
-        }
+                11:"Sowing & Germination", 12:"Crown Root Initiation",
+                1:"Tillering", 2:"Jointing",
+                3:"Heading & Flowering (Critical)", 4:"Harvesting Phase",
+                5:"Fallow", 6:"Fallow", 7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow",
+            },
+        },
     },
     "East Africa": {
         "Maize (Long Rains)": {
-            "start_month": 3,
-            "end_month": 9,
-            "base_daily_demand": 4.8,
-            "optimal_temp": (18.0, 26.0),
-            "optimal_precip": (4.0, 6.0),
+            "start": 3, "end": 9, "daily_demand_mm": 4.8,
+            "optimal_temp": (18, 26), "optimal_precip_mm_day": (4.0, 6.0),
             "stages": {
-                3: "Planting & Emergence",
-                4: "Vegetative Stage",
-                5: "Vegetative Stage",
-                6: "Tasseling & Silking (Critical)",
-                7: "Grain Filling",
-                8: "Cob Maturity",
-                9: "Harvesting Phase",
-                10: "Fallow Period", 11: "Fallow Period", 12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period"
-            }
+                3:"Planting & Emergence", 4:"Vegetative", 5:"Vegetative",
+                6:"Tasseling & Silking (Critical)", 7:"Grain Filling",
+                8:"Cob Maturity", 9:"Harvesting Phase",
+                10:"Fallow", 11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow",
+            },
         },
         "Sorghum": {
-            "start_month": 4,
-            "end_month": 10,
-            "base_daily_demand": 3.5,
-            "optimal_temp": (22.0, 30.0),
-            "optimal_precip": (2.5, 4.5),
+            "start": 4, "end": 10, "daily_demand_mm": 3.5,
+            "optimal_temp": (22, 30), "optimal_precip_mm_day": (2.5, 4.5),
             "stages": {
-                4: "Planting & Emergence",
-                5: "Vegetative Growth",
-                6: "Vegetative Growth",
-                7: "Flowering Stage",
-                8: "Grain Filling",
-                9: "Maturity",
-                10: "Harvesting Phase",
-                11: "Fallow Period", 12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period", 3: "Fallow Period"
-            }
-        }
+                4:"Planting", 5:"Vegetative", 6:"Vegetative",
+                7:"Flowering", 8:"Grain Filling", 9:"Maturity",
+                10:"Harvesting Phase",
+                11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow",
+            },
+        },
     },
     "Australia": {
         "Winter Wheat": {
-            "start_month": 5,
-            "end_month": 11,
-            "base_daily_demand": 3.8,
-            "optimal_temp": (10.0, 20.0),
-            "optimal_precip": (2.0, 4.0),
+            "start": 5, "end": 11, "daily_demand_mm": 3.8,
+            "optimal_temp": (10, 20), "optimal_precip_mm_day": (2.0, 4.0),
             "stages": {
-                5: "Sowing & Emergence",
-                6: "Tillering Stage",
-                7: "Jointing Stage",
-                8: "Booting Stage",
-                9: "Heading & Flowering (Critical)",
-                10: "Soft Dough / Grain Fill",
-                11: "Harvesting Phase",
-                12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period", 3: "Fallow Period", 4: "Fallow Period"
-            }
+                5:"Sowing & Emergence", 6:"Tillering", 7:"Jointing",
+                8:"Booting", 9:"Heading & Flowering (Critical)",
+                10:"Grain Fill", 11:"Harvesting Phase",
+                12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow",
+            },
         },
         "Barley": {
-            "start_month": 5,
-            "end_month": 10,
-            "base_daily_demand": 3.6,
-            "optimal_temp": (12.0, 22.0),
-            "optimal_precip": (2.0, 4.0),
+            "start": 5, "end": 10, "daily_demand_mm": 3.6,
+            "optimal_temp": (12, 22), "optimal_precip_mm_day": (2.0, 4.0),
             "stages": {
-                5: "Sowing & Emergence",
-                6: "Tillering Stage",
-                7: "Jointing Stage",
-                8: "Flowering Stage (Critical)",
-                9: "Grain Filling",
-                10: "Harvesting Phase",
-                11: "Fallow Period", 12: "Fallow Period", 1: "Fallow Period", 2: "Fallow Period", 3: "Fallow Period", 4: "Fallow Period"
-            }
-        }
-    }
+                5:"Sowing & Emergence", 6:"Tillering", 7:"Jointing",
+                8:"Flowering (Critical)", 9:"Grain Filling",
+                10:"Harvesting Phase",
+                11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow",
+            },
+        },
+    },
 }
 
-# ----------------- SESSION STATE LIFECYCLE -----------------
-if "preset_region" not in st.session_state:
-    st.session_state.preset_region = "Mazabuka, Zambia (Southern Africa)"
+
+def _detect_region(lat: float, lon: float) -> str:
+    if 65 < lon < 95 and 5 < lat < 38:
+        return "India"
+    if 110 < lon < 155 and -45 < lat < -10:
+        return "Australia"
+    if 30 < lon < 45 and -15 < lat < 15:
+        return "East Africa"
+    return "Zambia"
+
+
+def _is_active_season(cal: dict, month: int) -> bool:
+    s, e = cal["start"], cal["end"]
+    if s <= e:
+        return s <= month <= e
+    return month >= s or month <= e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CACHED DATA FETCHERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_weather(lat: float, lon: float) -> pd.DataFrame | None:
+    try:
+        return fetch_weather(lat, lon, days_back=400)
+    except Exception as e:
+        st.session_state["weather_error"] = str(e)
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_forecast(lat: float, lon: float) -> pd.DataFrame | None:
+    try:
+        return fetch_forecast(lat, lon, days=14)
+    except Exception as e:
+        return None
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def _cached_enso() -> dict:
+    return fetch_current_oni()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────────────────────
 if "point" not in st.session_state:
-    st.session_state.point = PRESETS["Mazabuka, Zambia (Southern Africa)"]["coords"]
+    st.session_state.point = PRESETS["Mazabuka, Zambia"]["coords"]
+if "preset_name" not in st.session_state:
+    st.session_state.preset_name = "Mazabuka, Zambia"
 
-# Auto-detect active regional context from coordinate location
-lat, lon = st.session_state.point
-if 65.0 < lon < 95.0 and 5.0 < lat < 38.0:
-    active_region = "India"
-elif 110.0 < lon < 155.0 and -45.0 < lat < -10.0:
-    active_region = "Australia"
-elif 30.0 < lon < 45.0 and -15.0 < lat < 15.0:
-    active_region = "East Africa"
-else:
-    active_region = "Zambia"
-
-# ----------------- SIDEBAR -----------------
-st.sidebar.markdown("<h2 style='text-align: center;'>🛰️ ENSA Control</h2>", unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────────────────
+st.sidebar.markdown(
+    "<h2 style='text-align:center;margin-bottom:4px'>🌾 ENSA</h2>"
+    "<p style='text-align:center;color:#a0aec0;font-size:.85rem;margin-top:0'>"
+    "El Niño Sentinel Agent</p>",
+    unsafe_allow_html=True,
+)
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("1. Region & Point Selection")
-preset_choice = st.sidebar.selectbox(
-    "Select Preset Region", 
+st.sidebar.subheader("1. Location")
+preset_name = st.sidebar.selectbox(
+    "Select preset location",
     list(PRESETS.keys()),
-    index=list(PRESETS.keys()).index(st.session_state.preset_region)
+    index=list(PRESETS.keys()).index(st.session_state.preset_name),
+)
+if preset_name != st.session_state.preset_name:
+    st.session_state.preset_name = preset_name
+    if preset_name != "Custom Point":
+        st.session_state.point = PRESETS[preset_name]["coords"]
+    st.rerun()
+
+c1, c2 = st.sidebar.columns(2)
+with c1:
+    lat_in = st.number_input("Latitude", value=float(st.session_state.point[0]), format="%.4f")
+with c2:
+    lon_in = st.number_input("Longitude", value=float(st.session_state.point[1]), format="%.4f")
+
+if [lat_in, lon_in] != list(st.session_state.point):
+    st.session_state.point = [lat_in, lon_in]
+    st.session_state.preset_name = "Custom Point"
+    st.rerun()
+
+lat, lon = st.session_state.point
+active_region = _detect_region(lat, lon)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("2. Crop")
+available_crops = list(CROP_CALENDARS.get(active_region, CROP_CALENDARS["Zambia"]).keys())
+crop_choice = st.sidebar.selectbox("Crop type", available_crops)
+cal = CROP_CALENDARS[active_region][crop_choice]
+today_month = datetime.now().month
+crop_stage = cal["stages"][today_month]
+is_active = _is_active_season(cal, today_month)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("3. AI Analysis (optional)")
+st.sidebar.caption(
+    "The core dashboard is 100% free. Optionally, paste your own API key "
+    "below to unlock an AI-generated narrative for your farm."
+)
+ai_provider = st.sidebar.selectbox("AI Provider", ["Anthropic (Claude)", "OpenAI (GPT-4o-mini)"])
+ai_key = st.sidebar.text_input("API Key", type="password", placeholder="sk-ant-... or sk-...")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='font-size:.78rem;color:#718096;text-align:center'>"
+    "ENSA v2.0 · Weather: Open-Meteo · ENSO: NOAA CPC<br>"
+    "Free & open-source</div>",
+    unsafe_allow_html=True,
 )
 
-if preset_choice != st.session_state.preset_region:
-    st.session_state.preset_region = preset_choice
-    if preset_choice != "Custom Point":
-        st.session_state.point = PRESETS[preset_choice]["coords"]
-    st.rerun()
+# ─────────────────────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────────────────────
+_lat_r = round(lat, 3)
+_lon_r = round(lon, 3)
 
-# Coordinate overrides in Sidebar
-c_lat, c_lon = st.sidebar.columns(2)
-with c_lat:
-    min_lat = st.number_input("Latitude", value=float(st.session_state.point[0]), format="%.4f")
-with c_lon:
-    min_lon = st.number_input("Longitude", value=float(st.session_state.point[1]), format="%.4f")
+with st.spinner("Loading weather data for your location…"):
+    df_weather = _cached_weather(_lat_r, _lon_r)
+    df_forecast = _cached_forecast(_lat_r, _lon_r)
+    oni = _cached_enso()
 
-# Update coordinates reactively
-new_point = [min_lat, min_lon]
-if new_point != list(st.session_state.point):
-    st.session_state.point = new_point
-    st.session_state.preset_region = "Custom Point"
-    st.rerun()
+data_ok = df_weather is not None and not df_weather.empty
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("2. Localized Crop Focus")
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown(
+    "<h1 style='background:linear-gradient(90deg,#38ef7d,#11998e);"
+    "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>"
+    "El Niño Sentinel Agent (ENSA)</h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<p style='color:#a0aec0;font-size:1.05rem;margin-top:-8px'>"
+    "Real-time agricultural drought early warning · Powered by Open-Meteo & NOAA</p>",
+    unsafe_allow_html=True,
+)
 
-# Dynamic crop selection based on detected regional crop calendars
-available_crops = list(CROP_CALENDARS.get(active_region, CROP_CALENDARS["Zambia"]).keys())
-crop_choice = st.sidebar.selectbox("Select Target Crop", available_crops)
+# ENSO STATUS STRIP
+oni_v = oni["value"]
+if oni_v >= 1.5:
+    enso_bg, enso_txt = "#7f1d1d", "#fca5a5"
+elif oni_v >= 0.5:
+    enso_bg, enso_txt = "#78350f", "#fcd34d"
+elif oni_v <= -0.5:
+    enso_bg, enso_txt = "#1e3a5f", "#93c5fd"
+else:
+    enso_bg, enso_txt = "#14532d", "#86efac"
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("3. Temporal Assessment Selector")
-# Baseline date May 31, 2026
-assessment_date = st.sidebar.date_input("Target Analysis Date", value=datetime(2026, 5, 31).date())
-reference_date = datetime(2026, 5, 31).date()
-is_future = assessment_date > reference_date
+st.markdown(
+    f"<div style='background:{enso_bg};border-radius:10px;padding:10px 18px;"
+    f"margin-bottom:18px;display:flex;align-items:center;gap:16px'>"
+    f"<span class='enso-chip' style='background:rgba(255,255,255,.15);color:{enso_txt}'>"
+    f"NINO3.4: {oni_v:+.2f}°C</span>"
+    f"<span style='color:{enso_txt};font-weight:600'>{oni['phase']}</span>"
+    f"<span style='color:rgba(255,255,255,.55);font-size:.85rem'>"
+    f"Source: {oni['source']} · {oni['month_name']} {oni['year']}</span>"
+    f"</div>",
+    unsafe_allow_html=True,
+)
 
-# ----------------- DYNAMIC CROP STAGE & CALENDAR WARNINGS -----------------
-calendar_metadata = CROP_CALENDARS[active_region][crop_choice]
-stage_name = calendar_metadata["stages"][assessment_date.month]
-
-# Determine if the selected date falls inside the crop's active growing season
-is_active_season = False
-if calendar_metadata["start_month"] <= calendar_metadata["end_month"]:
-    is_active_season = calendar_metadata["start_month"] <= assessment_date.month <= calendar_metadata["end_month"]
-else: # Wraps around new year (e.g. November to May)
-    is_active_season = (assessment_date.month >= calendar_metadata["start_month"]) or (assessment_date.month <= calendar_metadata["end_month"])
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("4. Cloud Sync API Credentials")
-gemini_key = st.sidebar.text_input("Gemini API Key", type="password")
-
-if st.sidebar.button("🔄 Sync Uncertainties with Cloud", use_container_width=True):
-    with st.spinner("Batching low-confidence alerts for Cloud AI analysis..."):
-        if gemini_key:
-            os.environ["GEMINI_API_KEY"] = gemini_key
-            
-        conn = get_db_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM forecast_history")
-            total = cursor.fetchone()[0]
-        except Exception:
-            total = 0
-        finally:
-            conn.close()
-            
-        try:
-            synchronizer = BatchSynchronizer()
-            status = synchronizer.sync_pending_anomalies()
-            if status:
-                st.sidebar.success("Database memory calibrated successfully!")
-                st.rerun()
-            else:
-                st.sidebar.info("No low-confidence records pending cloud sync.")
-        except Exception as e:
-            st.sidebar.error(f"❌ Synchronizer Error: {e}")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-<div style='font-size: 0.8rem; opacity: 0.65; text-align: center;'>
-    ENSA v1.5.0 — Point-Based Global<br/>
-    Drought Forecasting Engine
-</div>
-""", unsafe_allow_html=True)
-
-# ----------------- MAIN HEADER -----------------
-st.markdown("<h1 style='background: linear-gradient(90deg, #38ef7d 0%, #11998e 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
-st.markdown("<p style='font-size: 1.15rem; color: #a0aec0;'>High-Resolution Point-Based Climatological Supply-Demand Downscaling & Soil Moisture Calibration</p>", unsafe_allow_html=True)
-
-# Main Navigation Tabs
-tab_dashboard, tab_climatology, tab_journal = st.tabs([
-"📊 Localized Point Analytics", 
-    "📈 Multi-Decadal Comparisons", 
-    "📖 Calibration Journal & Academic Blueprints"
+# ─────────────────────────────────────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────────────────────────────────────
+tab_farm, tab_trends, tab_forecast, tab_about = st.tabs([
+    "🌾 Farm Status",
+    "📈 90-Day Trends",
+    "🔮 14-Day Outlook",
+    "📖 About & Methods",
 ])
 
-# ----------------- TAB 1: SPATIAL ANALYTICS -----------------
-with tab_dashboard:
-    
-    # 1. ENSO 2026 SEVERITY INDICATOR BANNER
-    nino34_sst = 1.95 if assessment_date.year == 2026 and assessment_date.month >= 8 else (1.25 if assessment_date.year == 2026 else (2.35 if assessment_date.year == 2027 else 0.25))
-    
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    col_enso_a, col_enso_b = st.columns([1, 3])
-    with col_enso_a:
-        st.metric("NINO3.4 SST Anomaly", f"+{nino34_sst:.2f}°C", "Active El Niño" if nino34_sst >= 0.5 else "Neutral ENSO")
-    with col_enso_b:
-        if nino34_sst >= 1.5:
-            st.markdown(f"🚨 **Super El Niño Phase Active**: Selected date targets a severe El Niño warming phase. Strong thermal anomalies threaten monsoonal rainfall in **{active_region}**, leading to delayed crop cycles and moisture stress. Historically analogous to the **2015-2016 and 2023-2024 Super El Niños**.")
-        elif nino34_sst >= 0.5:
-            st.markdown(f"⚠️ **Developing El Niño Phase**: Selected date targets a forming El Niño warming cycle. Expect escalating daytime temperatures and a higher probability of dry spells during critical growth stages for **{crop_choice}**.")
-        else:
-            st.markdown("✅ **Neutral ENSO Phase**: Oceanic temperatures in the Pacific are stable. Normal climatological cycles apply to current crop vegetative water requirements.")
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # Render Out-Of-Season Banner Warning if assessment date is in fallow period
-    if not is_active_season:
-        st.warning(f"⚠️ **Out-of-Season Agronomic Alert**: The selected date (`{assessment_date}`) falls outside the active growing season for **{crop_choice}** in **{active_region}** (Active: {calendar_metadata['stages'][calendar_metadata['start_month']]} to {calendar_metadata['stages'][calendar_metadata['end_month']]}). The crops are currently in the **{stage_name}** phase. High soil dryness and low vegetation greenness (VCI) are natural winter baseline responses and do not indicate active agricultural crop drought.")
-    
-    # Render Map Selection Canvas
-    col_map, col_coords_info = st.columns([3, 1])
-    
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 1: FARM STATUS
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_farm:
+
+    col_map, col_info = st.columns([3, 1])
+
     with col_map:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.subheader("Interactive Point Selection Canvas (OSM Tiles)")
-        st.write("📍 **Click anywhere on the map** to select a farm coordinate point. The pins automatically snap to your selected location.")
-        
-        # Center coordinate calculations
-        center_lat, center_lon = st.session_state.point
-        
-        # Render map using standard, highly readable OpenStreetMap tiles!
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=6, tiles="OpenStreetMap")
-        
-        # Draw a Marker at the selected point
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("📍 Farm Location")
+        st.caption("Click anywhere on the map to select your farm location.")
+        m = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
         folium.Marker(
-            location=[center_lat, center_lon],
-            tooltip=f"Selected Point: {center_lat:.4f}, {center_lon:.4f}",
-            icon=folium.Icon(color="green", icon="leaf")
+            location=[lat, lon],
+            tooltip=f"{lat:.4f}°, {lon:.4f}°",
+            icon=folium.Icon(color="green", icon="leaf"),
         ).add_to(m)
-        
-        # Render the map reactively using st_folium
-        map_data = st_folium(m, height=350, use_container_width=True, key="folium_draw_map_component")
-        
-        # Parse standard clicks as center-point shifts
-        if map_data and map_data.get("last_clicked"):
-            click_lat = map_data["last_clicked"]["lat"]
-            click_lon = map_data["last_clicked"]["lng"]
-            st.session_state.point = [click_lat, click_lon]
-            st.session_state.preset_region = "Custom Point"
-            st.toast(f"📍 Point set at ({click_lat:.4f}, {click_lon:.4f})")
-            st.rerun()
-            
+        map_out = st_folium(m, height=320, use_container_width=True, key="main_map")
+        if map_out and map_out.get("last_clicked"):
+            clat = map_out["last_clicked"]["lat"]
+            clon = map_out["last_clicked"]["lng"]
+            if [round(clat, 3), round(clon, 3)] != [round(lat, 3), round(lon, 3)]:
+                st.session_state.point = [clat, clon]
+                st.session_state.preset_name = "Custom Point"
+                st.toast(f"📍 Location set to ({clat:.4f}°, {clon:.4f}°)")
+                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_coords_info:
-        st.markdown("<div class='glass-card' style='height: 100%;'>", unsafe_allow_html=True)
-        st.subheader("Active Area Status")
-        st.write(f"🗺️ **Region**: `{active_region}`")
-        st.write(f"🌾 **Crop Selected**: `{crop_choice}`")
-        st.write(f"🌱 **Crop Stage**: `{stage_name}`")
-        st.info(f"""
-        **Latitude**: `{st.session_state.point[0]:.4f}°`  
-        **Longitude**: `{st.session_state.point[1]:.4f}°`
-        """)
-        st.write("---")
-        st.write("**Assessment Mode:**")
-        if is_future:
-            st.markdown("<div class='temporal-banner-future'>🔮 FUTURE RISKS PROJECTION</div>", unsafe_allow_html=True)
-            st.write(f"Projecting water stress for: `{assessment_date}`")
-        else:
-            st.markdown("<div class='temporal-banner-past'>🛰️ HISTORICAL OBSERVATION</div>", unsafe_allow_html=True)
-            st.write(f"Validating physical forecast for: `{assessment_date}`")
+    with col_info:
+        st.markdown("<div class='card' style='height:100%'>", unsafe_allow_html=True)
+        st.subheader("Location")
+        st.markdown(f"<div class='data-label'>Coordinates</div><div class='data-value' style='font-size:1rem'>{lat:.4f}°, {lon:.4f}°</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-label' style='margin-top:12px'>Region</div><div class='data-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-label' style='margin-top:12px'>Crop</div><div class='data-value' style='font-size:1.1rem'>{crop_choice}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='data-label' style='margin-top:12px'>Current Stage</div><div class='data-value' style='font-size:.95rem'>{crop_stage}</div>", unsafe_allow_html=True)
+        if not is_active:
+            st.warning("Off-season — crops are in fallow.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ----------------- SEED OFFSET GENERATION -----------------
-    # Incorporate selected date to ensure changes to target date reactively update simulated indices!
-    date_numeric = assessment_date.year * 365 + assessment_date.month * 30 + assessment_date.day
-    seed = int((abs(st.session_state.point[0]) + abs(st.session_state.point[1])) * 1000 + date_numeric) % 10000
-    np.random.seed(seed)
-    
-    # ----------------- CROP REQUIREMENT COMPARISON PANEL -----------------
-    st.markdown("### 🌾 Localized Crop Agronomic Analysis")
-    
-    opt_temp_min, opt_temp_max = calendar_metadata["optimal_temp"]
-    opt_precip_min, opt_precip_max = calendar_metadata["optimal_precip"]
-    
-    # Simulate weather observations/forecasts based on point and seed
-    # Scale based on region
-    np.random.seed(seed)
-    if is_future:
-        # Future forecasts (anomalous)
-        precip_stress = float(np.random.uniform(-40.0, -10.0))
-        temp_stress = float(np.random.uniform(1.2, 2.8))
-        
-        normal_temp = 23.0 if active_region in ["Zambia", "East Africa"] else (27.0 if active_region == "India" else 17.0)
-        normal_precip = 5.2 if active_region in ["Zambia", "East Africa"] else (6.5 if active_region == "India" else 3.2)
-        
-        observed_temp = normal_temp + temp_stress
-        observed_precip = max(0.0, normal_precip * (1.0 + precip_stress / 100.0))
-        observed_sm = 0.32
-        avg_ndvi = 0.40 if is_active_season else 0.70
-        avg_vci = 38.0 if is_active_season else 78.0
-    else:
-        # Historical observations
-        model_precip_stress = float(np.random.uniform(-35.0, -5.0))
-        model_temp_stress = float(np.random.uniform(1.0, 2.5))
-        model_soil_moisture = float(np.random.uniform(-1.8, -0.5))
-        
-        normal_temp = 23.0 if active_region in ["Zambia", "East Africa"] else (27.0 if active_region == "India" else 17.0)
-        normal_precip = 5.2 if active_region in ["Zambia", "East Africa"] else (6.5 if active_region == "India" else 3.2)
-        
-        observed_temp = normal_temp + model_temp_stress
-        observed_precip = max(0.0, normal_precip * (1.0 + model_precip_stress / 100.0))
-        
-        # Connect to planetary STAC for historical images
-        processor = Sentinel2Processor()
-        start_search = (assessment_date - timedelta(days=14)).strftime("%Y-%m-%d")
-        end_search = assessment_date.strftime("%Y-%m-%d")
-        
-        with st.spinner("Connecting to Microsoft Planetary Computer STAC..."):
-            scenes = processor.query_stac_metadata(st.session_state.point, start_search, end_search)
-            
-        with st.spinner("Extracting spatial grids & downscaling COG bands..."):
-            grid_data = processor.fetch_spatial_grids(scenes, st.session_state.point, grid_size=(30, 30), seed=seed)
-            
-        ndvi_array = np.array(grid_data["ndvi"])
-        vci_array = np.array(grid_data["vci"])
-        sm_array = np.array(grid_data["soil_moisture"])
-        
-        avg_vci = float(np.mean(vci_array))
-        avg_ndvi = float(np.mean(ndvi_array))
-        avg_sm = float(np.mean(sm_array))
-        observed_sm = avg_sm
-    
-    # Render graphic dashboard for Desired vs Actual
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    st.write(f"Comparing optimal crop thresholds for **{crop_choice}** vs observed/predicted meteorological conditions on **{assessment_date}**:")
-    
-    col_comp1, col_comp2, col_comp3, col_comp4 = st.columns(4)
-    with col_comp1:
-        # Temperature comparison
-        temp_status = "⚠️ Warm Stress" if observed_temp > opt_temp_max else ("❄️ Cold" if observed_temp < opt_temp_min else "✅ Optimal")
-        st.metric("Temperature", f"{observed_temp:.1f} °C", f"Desired: {opt_temp_min}-{opt_temp_max}°C", delta_color="inverse" if "Stress" in temp_status else "normal")
-        st.write(f"Status: **{temp_status}**")
-        temp_prog = min(1.0, max(0.0, (observed_temp - 10) / 30))
-        st.progress(temp_prog)
-        
-    with col_comp2:
-        # Precipitation comparison
-        precip_status = "⚠️ Deficit" if observed_precip < opt_precip_min else "✅ Optimal"
-        st.metric("Precipitation", f"{observed_precip:.1f} mm/day", f"Desired: {opt_precip_min}-{opt_precip_max} mm", delta_color="inverse" if "Deficit" in precip_status else "normal")
-        st.write(f"Status: **{precip_status}**")
-        precip_prog = min(1.0, max(0.0, observed_precip / 12.0))
-        st.progress(precip_prog)
-        
-    with col_comp3:
-        # Soil Moisture comparison
-        sm_status = "⚠️ Dry" if observed_sm < 0.40 else "✅ Optimal"
-        st.metric("Surface Soil Moisture", f"{observed_sm * 100:.1f}%", "Desired: > 40.0%", delta_color="inverse" if "Dry" in sm_status else "normal")
-        st.write(f"Status: **{sm_status}**")
-        st.progress(float(observed_sm))
-        
-    with col_comp4:
-        # NDVI status
-        ndvi_status = "Drying Canopy" if avg_ndvi < 0.45 else "Healthy Canopy"
-        st.metric("NDVI (Canopy Health)", f"{avg_ndvi:.3f}", f"VCI: {avg_vci:.1f}%", delta_color="normal" if avg_ndvi >= 0.45 else "inverse")
-        st.write(f"Status: **{ndvi_status}**")
-        st.progress(max(0.0, min(1.0, float(avg_ndvi))))
-        
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # ----------------- DUAL ROUTE CONDITIONAL DETAILS -----------------
-    if is_future:
-        # FUTURE VIEW
-        st.markdown("### 🔮 Route: Climatological Risk Projection")
-        col_fut_m1, col_fut_m2 = st.columns([1, 2])
-        
-        with col_fut_m1:
-            st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-            st.subheader("Model Projections")
-            st.metric("ECMWF Seasonal Precip Anomaly", f"{precip_stress:.1f}%", delta="Shortfall Expected")
-            st.metric("ECMWF Seasonal Temp Anomaly", f"+{temp_stress:.2f}°C", delta="Evaporation Demand")
-            
-            pdsi_forecast = calculate_pdsi_forecast(precip_stress, temp_stress, antecedent_pdsi=-1.25)
-            badge_style = "badge-extreme" if "Extreme" in pdsi_forecast["alert_level"] else ("badge-severe" if "Severe" in pdsi_forecast["alert_level"] else ("badge-moderate" if "Moderate" in pdsi_forecast["alert_level"] else "badge-normal"))
-            
-            st.markdown("---")
-            st.markdown(f"<h4>Projected PDSI Anomaly:<br><span class='badge {badge_style}'>{pdsi_forecast['pdsi']:.2f} ({pdsi_forecast['alert_level']})</span></h4>", unsafe_allow_html=True)
-            st.write(f"**Action Protocol**: {pdsi_forecast['actionable_recommendation']}")
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        with col_fut_m2:
-            st.markdown("<div class='glass-card' style='height: 100%;'>", unsafe_allow_html=True)
-            st.subheader("Cognitive Risk Assessment (AI Agent Core)")
-            st.write("Generative assessment derived from spatial point, cropping calendar, and atmospheric deficits:")
-            
-            region_data = {
-                "region_name": st.session_state.preset_region if "Custom" not in st.session_state.preset_region else f"Custom coordinates ({center_lat:.2f}, {center_lon:.2f})",
-                "country": active_region,
-                "crop_type": crop_choice,
-                "current_date": assessment_date.strftime("%Y-%m-%d"),
-                "nino34_sst": nino34_sst,
-                "spei3_predicted": pdsi_forecast['z_index'],
-                "vci_observed": 40.0 if is_active_season else 75.0,
-                "soil_moisture_observed": observed_sm,
-                "crop_stage": stage_name
-            }
-            
-            brain = ENSABrain()
-            if gemini_key:
-                brain.openai_key = gemini_key
-                
-            with st.spinner("Cognitive Layer reflecting on climatological threat..."):
-                analysis_report = brain.evaluate_drought_risk(region_data)
-                
-            st.markdown(f"**Vulnerability Score**: `{analysis_report['vulnerability_score']}/100`")
-            st.markdown(f"**Drought Severity Classification**: `{analysis_report['drought_severity_class']}`")
-            st.markdown("---")
-            st.write(f"🧠 **Calibration Reasoning**: *{analysis_report.get('self_correction_journal')}*")
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-    else:
-        # PAST VIEW
-        st.markdown("### 🛰️ Route: Climatological Supply-Demand Validation")
-        col_vis1, col_vis2 = st.columns(2)
-        
-        with col_vis1:
-            st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-            st.subheader("1. Sentinel-2 High-Resolution Biophysical Heatmaps")
-            st.write("Extracting biological vegetative canopy and surface soil wetness:")
-            
-            sub_tab_ndvi, sub_tab_sm, sub_tab_thumbnail = st.tabs(["🌿 Vegetation NDVI Map", "🔬 Surface Soil Moisture Map", "🖼️ True-Color Thumbnail"])
-            
-            with sub_tab_ndvi:
-                fig, ax = plt.subplots(figsize=(6, 4), facecolor="none")
-                ax.set_facecolor("none")
-                im = ax.imshow(ndvi_array, cmap="RdYlGn", vmin=0.0, vmax=0.85)
-                cbar = fig.colorbar(im, ax=ax)
-                cbar.ax.yaxis.set_tick_params(color='white')
-                plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
-                cbar.set_label("NDVI Value (Greenness)", color="white")
-                ax.axis("off")
-                st.pyplot(fig)
-                st.caption(f"10m Spatial NDVI Grid: Chlorophyll activity for {crop_choice} ({stage_name}).")
-                
-            with sub_tab_sm:
-                fig_sm, ax_sm = plt.subplots(figsize=(6, 4), facecolor="none")
-                ax_sm.set_facecolor("none")
-                im_sm = ax_sm.imshow(sm_array, cmap="YlOrBr", vmin=0.0, vmax=1.0)
-                cbar_sm = fig_sm.colorbar(im_sm, ax=ax_sm)
-                cbar_sm.ax.yaxis.set_tick_params(color='white')
-                plt.setp(plt.getp(cbar_sm.ax.axes, 'yticklabels'), color='white')
-                cbar_sm.set_label("Soil Moisture Index (SMI)", color="white")
-                ax_sm.axis("off")
-                st.pyplot(fig_sm)
-                st.caption("Surface Soil Moisture (0 to 100% saturation): Darker brown represents dry soil, lighter represents moist/wet soils.")
-                
-            with sub_tab_thumbnail:
-                if grid_data.get("thumbnail_url"):
-                    st.image(grid_data["thumbnail_url"], caption=f"Sentinel-2 True Color: {grid_data['date']}", use_column_width=True)
-                else:
-                    st.info("No direct true color scene thumbnail available. Displaying procedurally generated spatial index preview.")
-                    st.image("https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=600&q=80", caption="Procedural Agriculture Lands", use_column_width=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        with col_vis2:
-            st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-            st.subheader("2. Climatological Moisture Supply-Demand & Soil Buffering")
-            
-            sub_tab_balance, sub_tab_lag, sub_tab_soil = st.tabs(["🌧️ Supply vs Demand Balance", "📈 Crop Stress Lag Analysis", "🪨 Agronomic Soil Buffer"])
-            
-            # Calculations
-            days = np.linspace(1, 90, 90)
-            pet_multiplier = 1.0 + (model_temp_stress * 0.15)
-            actual_daily = calendar_metadata["base_daily_demand"] * pet_multiplier
-            cumulative_pet = actual_daily * days + np.random.normal(0, 0.5, 90).cumsum()
-            cwr_line = cumulative_pet * 0.7
-            
-            # Cumulative rain supply
-            cumulative_rain = 2.2 * 90 if active_region in ["Zambia", "East Africa"] else 4.0 * 90
-            cumulative_precip = (cumulative_rain / 90.0) * days + np.random.normal(0, 1.2, 90).cumsum()
-            cumulative_precip = np.clip(cumulative_precip, 0, None)
-            deficit_gap_mm = max(0.0, cwr_line[-1] - cumulative_precip[-1])
-            
-            with sub_tab_balance:
-                fig_bal, ax_bal = plt.subplots(figsize=(6, 4), facecolor="none")
-                ax_bal.set_facecolor("none")
-                ax_bal.plot(days, cumulative_pet, color="#e74c3c", label="Moisture Demand (Cumulative PET)", linewidth=2.5)
-                ax_bal.plot(days, cwr_line, color="#f1c40f", linestyle="--", label="Crop Water Requirement (CWR)", linewidth=2.0)
-                ax_bal.plot(days, cumulative_precip, color="#3498db", label="Moisture Supply (Cumulative Rain)", linewidth=2.5)
-                ax_bal.fill_between(days, cumulative_precip, cwr_line, where=(cumulative_precip < cwr_line), color="#e67e22", alpha=0.25, label="Crop Water Deficit")
-                ax_bal.set_xlabel("Days in Cropping Season", color="white")
-                ax_bal.set_ylabel("Water Depth (mm)", color="white")
-                ax_bal.tick_params(colors="white")
-                ax_bal.legend(facecolor="black", edgecolor="gray", labelcolor="white", fontsize="small")
-                ax_bal.grid(True, color="white", alpha=0.1)
-                st.pyplot(fig_bal)
-                st.caption(f"Supply-Demand Curve: Orange region represents water stress where requirements exceeded supply by {deficit_gap_mm:.1f} mm.")
-                
-            with sub_tab_lag:
-                lags = [0, 1, 2, 3, 4, 5]
-                peak_lag = 4 if active_region in ["Zambia", "East Africa"] else 2
-                correlations = []
-                for l in lags:
-                    dist = abs(l - peak_lag)
-                    r = 0.82 - (dist * 0.12) + np.random.normal(0, 0.02)
-                    correlations.append(np.clip(r, 0.1, 0.9))
-                
-                fig_lag, ax_lag = plt.subplots(figsize=(6, 4), facecolor="none")
-                ax_lag.set_facecolor("none")
-                colors = ["#2ecc71" if l == peak_lag else "#95a5a6" for l in lags]
-                bars = ax_lag.bar(lags, correlations, color=colors, edgecolor="white", width=0.6)
-                for bar in bars:
-                    yval = bar.get_height()
-                    ax_lag.text(bar.get_x() + bar.get_width()/2.0, yval + 0.02, f"r={yval:.2f}", ha='center', va='bottom', color='white', fontsize=8)
-                ax_lag.set_xlabel("Biological Response Lag (Weeks)", color="white")
-                ax_lag.set_ylabel("Pearson Correlation (r)", color="white")
-                ax_lag.tick_params(colors="white")
-                ax_lag.set_ylim(0, 1.0)
-                ax_lag.grid(True, axis="y", color="white", alpha=0.1)
-                st.pyplot(fig_lag)
-                st.caption(f"Lag Cross-Correlation: Peak correlation ($r = {correlations[peak_lag]:.2f}$) at a **{peak_lag}-week lag**.")
-                
-            with sub_tab_soil:
-                soil_type = "Clay-Loam (High PAWC)" if peak_lag == 4 else "Sandy-Loam (Low PAWC)"
-                pawc = 160 if peak_lag == 4 else 85
-                st.markdown(f"**Estimated Soil Profile**: `{soil_type}`")
-                st.markdown(f"**Plant-Available Water Capacity (PAWC)**: `{pawc} mm` (Root-zone maximum)")
-                st.metric("Soil Moisture Deficit (Observed)", f"{observed_sm * 100:.1f}%", delta="Dry Condition" if observed_sm < 0.40 else "Adequate")
-                st.metric("Soil Buffer Survival Index", f"{peak_lag} Weeks", delta="Time to vegetative browning")
-                
-            st.markdown("</div>", unsafe_allow_html=True)
+    if not data_ok:
+        st.error(
+            "⚠️ Could not load weather data for this location. "
+            "This may be a temporary network issue. "
+            f"Error: {st.session_state.get('weather_error', 'Unknown')}"
+        )
+        st.stop()
 
-        # Calibration logging inside Past View
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        col_log1, col_log2 = st.columns([2, 1])
-        with col_log1:
-            # Buffer gap
-            pct_water_deficit = max(0.0, (deficit_gap_mm / (cwr_line[-1] + 1e-8)) * 100.0)
-            observed_stress = 100.0 - avg_vci
-            biological_gap = pct_water_deficit - observed_stress
-            
-            st.write(f"""
-            ### Calibration Discrepancy & Validation Gap:
-            * **Atmospheric Water Deficit**: `{pct_water_deficit:.1f}%` (Precipitation shortfall vs crop requirements)
-            * **Sentinel-2 Vegetation Stress (100 - VCI)**: `{observed_stress:.1f}%`
-            * **Biophysical Soil Buffer Gap**: **`+{biological_gap:.1f}%`**
-            """)
-            if biological_gap > 10.0:
-                st.warning(f"🌱 **Biophysical Moisture Dampening Detected (Gap of +{biological_gap:.1f}%)**: Rainfall is low, but high-resolution remote sensing observes a healthy canopy (VCI = {avg_vci:.1f}%). This confirms that soil moisture has successfully buffered crop stress.")
-            else:
-                st.info("✅ **Perfect Equilibrium**: Crop vegetative stress perfectly tracks atmospheric water deficits.")
-                
-        with col_log2:
-            st.write("**Calibration Log Sync**")
-            ref_reasoning = f"Validated seasonal deficit for {assessment_date} over {st.session_state.preset_region}. Crop water deficit was {pct_water_deficit:.1f}%, while S2 observed VCI was {avg_vci:.1f}%. Soil moisture buffer gap: {biological_gap:.1f}%."
-            log_reasoning = st.text_area("Adjust Calibration Log Reason", value=ref_reasoning, height=90)
-            
-            if st.button("💾 Log Calibration to SQLite", use_container_width=True):
-                conn = get_db_connection()
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO self_correction_journal (
-                            journal_date, assessment_period, target_district,
-                            raw_pdsi_forecast, observed_pdsi, forecast_rmse,
-                            agent_reasoning, parameter_adjustments
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        datetime.now().strftime("%Y-%m-%d"),
-                        "Agro-Meteorological Validation",
-                        st.session_state.preset_region if "Custom" not in st.session_state.preset_region else f"Custom ({center_lat:.2f}, {center_lon:.2f})",
-                        float(-deficit_gap_mm / 100.0),
-                        float((avg_vci - 50) / 25.0),
-                        float(abs(biological_gap)),
-                        log_reasoning,
-                        json.dumps({"soil_moisture_adjustment": 0.05, "precipitation_adjustment": -0.05})
-                    ))
-                    conn.commit()
-                    st.success("🎉 Self-Correction recorded in localized edge database successfully!")
-                    st.toast("SQLite record committed! Calibration weights recalibrated.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to write calibration log: {e}")
-                finally:
-                    conn.close()
-        st.markdown("</div>", unsafe_allow_html=True)
+    # ── RISK SCORE ──────────────────────────────────────────────────────────
+    assessment = compute_drought_score(df_weather, oni_v, crop_stage, is_active)
+    score = assessment["score"]
+    level = assessment["alert_level"]
+    color = assessment["alert_color"]
+    emoji = assessment["alert_emoji"]
 
-    # ----------------- 📅 WEATHER FORECAST PANEL (Selected Day +- 10 Days) -----------------
-    st.markdown("### 📅 Localized Weather Forecast (Selected Day ±10 Days)")
-    
-    # Calculate 21-day timeline
-    forecast_dates = [assessment_date - timedelta(days=i) for i in range(-10, 11)]
-    forecast_dates.reverse() # chronologically ordered from -10 to +10
-    
-    timeline_seed = int((abs(st.session_state.point[0]) + abs(st.session_state.point[1])) * 100) % 5000
-    np.random.seed(timeline_seed + date_numeric)
-    
-    base_temp = 24.0 if active_region in ["Zambia", "East Africa"] else (28.0 if active_region == "India" else 18.0)
-    base_precip = 5.0 if active_region in ["Zambia", "East Africa"] else (6.5 if active_region == "India" else 3.2)
-    base_sm = 0.5
-    
-    forecast_temps = []
-    forecast_precips = []
-    forecast_sm = []
-    forecast_dates_str = []
-    
-    for i, d in enumerate(forecast_dates):
-        temp = base_temp + 3.0 * np.sin(i * 0.3) + np.random.normal(0, 0.5)
-        precip = max(0.0, base_precip + 4.0 * np.cos(i * 0.4) + np.random.normal(0, 1.0))
-        sm = np.clip(base_sm + 0.15 * np.sin(i * 0.25) - (0.01 * temp) + (0.03 * precip) + np.random.normal(0, 0.02), 0.0, 1.0)
-        
-        forecast_temps.append(round(temp, 1))
-        forecast_precips.append(round(precip, 1))
-        forecast_sm.append(round(sm, 2))
-        forecast_dates_str.append(d.strftime("%b %d"))
-        
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    col_fc_plot, col_fc_cards = st.columns([2, 1])
-    
-    with col_fc_plot:
-        st.write("#### 📈 Predicted Atmospheric and Soil Trends")
-        # Renders a beautiful dual-axis trend chart using matplotlib
-        fig_fc, ax_fc1 = plt.subplots(figsize=(8, 4), facecolor="none")
-        ax_fc1.set_facecolor("none")
-        
-        # Style text and axes
-        plt.rcParams['text.color'] = 'white'
-        plt.rcParams['axes.labelcolor'] = 'white'
-        plt.rcParams['xtick.color'] = 'white'
-        plt.rcParams['ytick.color'] = 'white'
-        
-        # Temperature
-        ax_fc1.plot(forecast_dates_str, forecast_temps, color="#ff4b4b", label="Temperature (°C)", linewidth=2.5)
-        ax_fc1.set_ylabel("Temperature (°C)", color="#ff4b4b", fontweight="bold")
-        ax_fc1.tick_params(colors="white")
-        
-        # Precipitation on second axis
-        ax_fc2 = ax_fc1.twinx()
-        ax_fc2.bar(forecast_dates_str, forecast_precips, color="#3498db", alpha=0.4, label="Precipitation (mm/day)", width=0.5)
-        ax_fc2.set_ylabel("Precipitation (mm/day)", color="#3498db", fontweight="bold")
-        ax_fc2.tick_params(colors="white")
-        
-        ax_fc1.set_xlabel("Date Window (Selected Day ±10 Days)", color="white", fontweight="bold")
-        ax_fc1.set_xticks(forecast_dates_str[::3]) # Show every 3rd label to prevent overlapping
-        ax_fc1.grid(True, color="white", alpha=0.1)
-        
-        fig_fc.tight_layout()
-        st.pyplot(fig_fc)
-        st.caption("Forecast Timeline: Combined temperature trends (red line) and daily rainfall projections (blue bars) derived from weather model grids.")
-        
-    with col_fc_cards:
-        st.write("#### 📅 Weather App View")
-        st.write("Timeline centered around selected day:")
-        
-        # Display 5 days centered on the selected day
-        start_idx = 10 - 2 # index 10 is the selected day
-        end_idx = 10 + 3
-        
-        for i in range(start_idx, end_idx):
-            d_str = forecast_dates[i].strftime("%A, %b %d")
-            d_temp = forecast_temps[i]
-            d_prec = forecast_precips[i]
-            
-            # Weather icon determination
-            icon = "☀️" if d_prec < 0.5 else ("⛅" if d_prec < 2.5 else "🌧️")
-            is_target_day = " (Target)" if i == 10 else ""
-            
-            st.markdown(f"""
-            <div style='background: rgba(255, 255, 255, 0.03); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; border-left: 3px solid {"#38ef7d" if i == 10 else "rgba(255,255,255,0.15)"};'>
-                <span style='font-size: 1.1rem;'>{icon}</span> <b>{d_str}{is_target_day}</b><br/>
-                <span style='color: #ff6b6b;'>Temp: {d_temp:.1f}°C</span> | <span style='color: #4da6ff;'>Precip: {d_prec:.1f} mm</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-    st.markdown("</div>", unsafe_allow_html=True)
+    summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"], st.session_state.preset_name)
 
-    # ----------------- Generative Recommendations (ENSABrain Core AI Suggestions) -----------------
-    st.markdown("### 🧠 Generative Cognitive Recommendations for Farmer")
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    
-    # Pack parameters for recommendation prompts
-    region_data = {
-        "region_name": st.session_state.preset_region if "Custom" not in st.session_state.preset_region else f"Custom coordinates ({center_lat:.2f}, {center_lon:.2f})",
-        "country": active_region,
-        "crop_type": crop_choice,
-        "current_date": assessment_date.strftime("%Y-%m-%d"),
-        "nino34_sst": nino34_sst,
-        "spei3_predicted": float(np.random.uniform(-1.5, -0.2)) if is_future else float(model_precip_stress / 30.0),
-        "vci_observed": float(avg_vci) if not is_future else 42.0,
-        "soil_moisture_observed": float(observed_sm),
-        "crop_stage": stage_name
-    }
-    
-    brain = ENSABrain()
-    if gemini_key:
-        brain.openai_key = gemini_key
-        
-    with st.spinner("AI Agronomist formulating custom guidelines..."):
-        analysis_report = brain.evaluate_drought_risk(region_data)
-        
-    st.markdown(f"**🚨 Recommended Action Protocol (Drought Classification: {analysis_report['drought_severity_class']})**")
-    for rec in analysis_report.get("actionable_recommendations", []):
-        st.write(f"👉 **{rec}**")
-        
-    st.markdown("---")
-    st.write(f"💡 *AI Agronomic Reasoning: {analysis_report.get('self_correction_journal')}*")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ============================================================
-# TAB 2: CLIMATOLOGICAL BASELINES (COMPARISONS)
-# ============================================================
-with tab_climatology:
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    st.subheader("📊 Multi-Decadal Baselines & El Niño Comparisons")
-    st.markdown("Compare seasonal atmospheric and soil trends between **Normal Years**, **This Year (2026)**, and the **Last El Niño Year (2023-2024 Reference)** to track the physical gap.")
-    
-    param_choice = st.radio(
-        "Select Parameter for Multi-Decadal Comparison", 
-        ["Precipitation (mm/day)", "Temperature (°C)", "Soil Moisture (%)"], 
-        horizontal=True
+    st.markdown(
+        f"<div class='risk-block' style='background:linear-gradient(135deg,{color}18,{color}08);border-color:{color}55'>"
+        f"<div style='display:flex;align-items:baseline;gap:16px'>"
+        f"<span class='risk-score' style='color:{color}'>{score:.0f}</span>"
+        f"<span style='color:{color};font-size:1.2rem'>/100</span>"
+        f"<span class='risk-label' style='color:{color}'>{emoji} {level} Drought Risk</span>"
+        f"</div>"
+        f"<div class='risk-summary'>{summary_text}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
     )
-    
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    
-    # Dynamic values based on selected parameter and active region
-    np.random.seed(seed)
-    if "Precipitation" in param_choice:
-        base_val = 6.0 if active_region in ["Zambia", "East Africa", "India"] else 3.5
-        normal_curve = base_val + 3.0 * np.sin(np.linspace(0, np.pi, 12)) + np.random.normal(0, 0.2, 12)
-        last_nino_curve = normal_curve * 0.65 + np.random.normal(0, 0.1, 12)
-        this_year_curve = normal_curve * 0.8 + np.random.normal(0, 0.15, 12)
-        y_label = "Precipitation (mm/day)"
-        title = "Seasonal Rainfall Comparison Cycle"
-    elif "Temperature" in param_choice:
-        base_val = 22.0 if active_region in ["Zambia", "East Africa", "India"] else 15.0
-        normal_curve = base_val + 5.0 * np.sin(np.linspace(0, np.pi, 12)) + np.random.normal(0, 0.4, 12)
-        last_nino_curve = normal_curve + 2.2 + np.random.normal(0, 0.2, 12)
-        this_year_curve = normal_curve + 1.4 + np.random.normal(0, 0.3, 12)
-        y_label = "Temperature (°C)"
-        title = "Seasonal Temperature Comparison Cycle"
-    else:
-        normal_curve = np.linspace(0.65, 0.35, 12) * 100 + np.random.normal(0, 1.5, 12)
-        last_nino_curve = normal_curve * 0.70 + np.random.normal(0, 1.0, 12)
-        this_year_curve = normal_curve * 0.82 + np.random.normal(0, 1.2, 12)
-        y_label = "Soil Moisture (%)"
-        title = "Seasonal Surface Soil Moisture Comparison Cycle"
-        
-    # Standardize curves to avoid negative values
-    normal_curve = np.clip(normal_curve, 0.0, None)
-    last_nino_curve = np.clip(last_nino_curve, 0.0, None)
-    this_year_curve = np.clip(this_year_curve, 0.0, None)
-    
-    # Matplotlib line chart
-    fig_base, ax_base = plt.subplots(figsize=(9, 4.5), facecolor="none")
-    ax_base.set_facecolor("none")
-    
-    # Plot curves
-    ax_base.plot(months, normal_curve, color="#2ecc71", label="10-Year Climatological Mean (Normal)", linewidth=2.5)
-    ax_base.plot(months, last_nino_curve, color="#f1c40f", linestyle="--", label="Last El Niño (2023-2024 Reference)", linewidth=2.0)
-    
-    # Current year curve: plot actuals up to selected month, and forecast dotted
-    current_month_idx = assessment_date.month - 1
-    ax_base.plot(months[:current_month_idx+1], this_year_curve[:current_month_idx+1], color="#e74c3c", label="Current Year (Observed)", linewidth=3.0)
-    if current_month_idx < 11:
-        ax_base.plot(months[current_month_idx:], this_year_curve[current_month_idx:], color="#e74c3c", linestyle=":", label="Current Year (Model Forecast)", linewidth=2.5)
-        
-    ax_base.set_title(title, color="white", fontweight="bold", fontsize=12)
-    ax_base.set_ylabel(y_label, color="white", fontweight="bold")
-    ax_base.tick_params(colors="white")
-    ax_base.legend(facecolor="black", edgecolor="gray", labelcolor="white", fontsize="small")
-    ax_base.grid(True, color="white", alpha=0.1)
-    
-    fig_base.tight_layout()
-    st.pyplot(fig_base)
-    st.caption("Baseline Graph: Visualizing crop vulnerability by placing this year's seasonal trajectory side-by-side with historical averages and the last major El Niño.")
-    
+
+    # ── 4 METRIC CARDS ──────────────────────────────────────────────────────
+    m1, m2, m3, m4 = st.columns(4)
+
+    tail90 = df_weather.tail(90)
+    precip_90 = tail90["precip_mm"].sum()
+    temp_90   = tail90["temp_c"].mean()
+    et0_90    = tail90["et0_mm"].sum()
+    deficit   = max(0, et0_90 - precip_90)
+
+    opt_t_lo, opt_t_hi = cal["optimal_temp"]
+    opt_p_lo, opt_p_hi = cal["optimal_precip_mm_day"]
+    precip_daily_avg = precip_90 / 90
+
+    with m1:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        status_rain = "🔴 Below target" if precip_daily_avg < opt_p_lo else ("🟡 Low" if precip_daily_avg < opt_p_hi * 0.75 else "🟢 Adequate")
+        st.markdown(
+            f"<div class='data-label'>Rainfall (last 90 days)</div>"
+            f"<div class='data-value'>{precip_90:.0f} mm</div>"
+            f"<div class='data-sub'>{precip_daily_avg:.1f} mm/day · Target: {opt_p_lo}–{opt_p_hi} mm/day<br>{status_rain}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with m2:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        status_def = "🔴 Severe" if deficit > 200 else ("🟡 Moderate" if deficit > 80 else "🟢 Low")
+        st.markdown(
+            f"<div class='data-label'>Water Deficit (90 days)</div>"
+            f"<div class='data-value'>{deficit:.0f} mm</div>"
+            f"<div class='data-sub'>Evaporation demand: {et0_90:.0f} mm<br>{status_def}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with m3:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        status_temp = "🔴 Heat stress" if temp_90 > opt_t_hi else ("🟡 Warm" if temp_90 > opt_t_hi - 2 else "🟢 Optimal")
+        st.markdown(
+            f"<div class='data-label'>Mean Temperature (90 days)</div>"
+            f"<div class='data-value'>{temp_90:.1f} °C</div>"
+            f"<div class='data-sub'>Optimal range: {opt_t_lo}–{opt_t_hi}°C<br>{status_temp}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with m4:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        spi_label = "Severe drought" if assessment["spi3"] < -2 else (
+            "Moderate drought" if assessment["spi3"] < -1 else (
+            "Dry" if assessment["spi3"] < -0.5 else "Normal"))
+        st.markdown(
+            f"<div class='data-label'>SPI-3 (Precip Index)</div>"
+            f"<div class='data-value'>{assessment['spi3']:+.2f}</div>"
+            f"<div class='data-sub'>{spi_label}<br>Below –1.0 = drought onset</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── RECOMMENDATIONS ──────────────────────────────────────────────────────
+    st.markdown("### What should you do?")
+    recs = generate_recommendations(assessment, crop_choice, crop_stage, oni_v)
+    for rec in recs:
+        st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
+
+    # ── AI ANALYSIS (optional) ───────────────────────────────────────────────
+    with st.expander("🤖 AI-Enhanced Analysis (optional — requires your own API key)"):
+        st.caption(
+            "The AI uses the real data above to write a richer personalised assessment. "
+            "Enter your Anthropic or OpenAI API key in the sidebar to enable this."
+        )
+        if st.button("Generate AI Analysis", disabled=not bool(ai_key)):
+            if ai_key:
+                provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
+                with st.spinner("Asking AI…"):
+                    ai_text = call_llm_narrative(
+                        assessment, crop_choice, crop_stage, oni,
+                        st.session_state.preset_name, ai_key, provider,
+                    )
+                st.markdown(ai_text)
+            else:
+                st.info("Enter your API key in the sidebar first.")
+
+    # ── LOG TO DB ────────────────────────────────────────────────────────────
+    with st.expander("💾 Log this assessment to local database"):
+        if st.button("Save assessment"):
+            try:
+                init_db()
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT OR IGNORE INTO regional_targets "
+                    "(region_name, country, crop_type, bbox_coords, is_scheduled) "
+                    "VALUES (?,?,?,?,?)",
+                    (st.session_state.preset_name, active_region, crop_choice,
+                     f"{lon},{lat}", 0),
+                )
+                cursor.execute(
+                    "INSERT INTO self_correction_journal "
+                    "(journal_date, assessment_period, target_district, "
+                    "raw_pdsi_forecast, observed_pdsi, forecast_rmse, "
+                    "agent_reasoning, parameter_adjustments) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        datetime.now().strftime("%Y-%m-%d"),
+                        "Manual save",
+                        st.session_state.preset_name,
+                        assessment["spi3"],
+                        -deficit / 100.0,
+                        abs(score - 50),
+                        summary_text,
+                        f'{{"score":{score},"level":"{level}","oni":{oni_v}}}',
+                    ),
+                )
+                conn.commit()
+                conn.close()
+                st.success("Saved!")
+            except Exception as e:
+                st.error(f"Could not save: {e}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 2: 90-DAY TRENDS
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_trends:
+    if not data_ok:
+        st.warning("Weather data unavailable.")
+        st.stop()
+
+    df_plot = df_weather.tail(90).copy()
+
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Rainfall — last 90 days")
+    st.caption("Daily precipitation (bars) and 7-day rolling average (line).")
+    fig, ax = plt.subplots(figsize=(10, 3.2), facecolor="none")
+    ax.set_facecolor("none")
+    ax.bar(df_plot["date"], df_plot["precip_mm"], color="#3b82f6", alpha=0.6, width=0.9, label="Daily rain (mm)")
+    roll7 = df_plot["precip_mm"].rolling(7, min_periods=1).mean()
+    ax.plot(df_plot["date"], roll7, color="#60a5fa", linewidth=2, label="7-day avg")
+    daily_target = cal["optimal_precip_mm_day"][0]
+    ax.axhline(daily_target, color="#38ef7d", linestyle="--", linewidth=1.2, alpha=0.7, label=f"Min crop need ({daily_target} mm/day)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+    plt.xticks(rotation=30, color="white", fontsize=8)
+    ax.tick_params(colors="white")
+    ax.spines[:].set_visible(False)
+    ax.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
+    ax.set_ylabel("mm", color="white", fontsize=9)
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ============================================================
-# TAB 3: CALIBRATION JOURNAL & BIBLIOGRAPHY
-# ============================================================
-with tab_journal:
-    
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    st.subheader("🔄 Edge Node Calibration & Self-Correction Journal (Learned Memory)")
-    st.write("Each entry represents a localized calibration reflection logged by the agent or supervisor during past analyses. This acts as our persistent downscaling memory.")
-    
-    conn = get_db_connection()
-    try:
-        df_journal = pd.read_sql_query("SELECT * FROM self_correction_journal ORDER BY id DESC", conn)
-    except Exception:
-        df_journal = pd.DataFrame()
-    finally:
-        conn.close()
-        
-    if df_journal.empty:
-        st.info("No cloud self-correction logs recorded yet. Log your first calibration in the Localized Point Analytics tab!")
-    else:
-        for idx, row in df_journal.iterrows():
-            st.markdown(f"**📅 Journal Date: {row['journal_date']} | Period: {row['assessment_period']}**")
-            st.markdown(f"*Target district: `{row['target_district']}` | Calibration error: `{row['forecast_rmse']:.1f}%`*")
-            st.info(row["agent_reasoning"])
-            st.markdown("---")
-            
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Cumulative Water Balance")
+        st.caption("Cumulative (rainfall − evaporation). Orange zone = water deficit.")
+        fig2, ax2 = plt.subplots(figsize=(6, 3.2), facecolor="none")
+        ax2.set_facecolor("none")
+        cum_wb = df_plot["water_balance_mm"].cumsum()
+        ax2.plot(df_plot["date"], cum_wb, color="#f97316", linewidth=2)
+        ax2.fill_between(df_plot["date"], cum_wb, 0,
+                         where=(cum_wb < 0), color="#f97316", alpha=0.18, label="Deficit")
+        ax2.fill_between(df_plot["date"], cum_wb, 0,
+                         where=(cum_wb >= 0), color="#38ef7d", alpha=0.18, label="Surplus")
+        ax2.axhline(0, color="white", linewidth=0.7, alpha=0.4)
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        ax2.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
+        plt.xticks(rotation=30, color="white", fontsize=8)
+        ax2.tick_params(colors="white")
+        ax2.spines[:].set_visible(False)
+        ax2.set_ylabel("mm cumulative", color="white", fontsize=9)
+        ax2.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
+        st.pyplot(fig2, use_container_width=True)
+        plt.close(fig2)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_b:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Temperature Trend")
+        st.caption(f"Mean daily temperature with optimal range for {crop_choice}.")
+        fig3, ax3 = plt.subplots(figsize=(6, 3.2), facecolor="none")
+        ax3.set_facecolor("none")
+        ax3.plot(df_plot["date"], df_plot["temp_c"], color="#ef4444", linewidth=1.8)
+        t_lo, t_hi = cal["optimal_temp"]
+        ax3.axhspan(t_lo, t_hi, alpha=0.12, color="#38ef7d", label=f"Optimal {t_lo}–{t_hi}°C")
+        ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        ax3.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
+        plt.xticks(rotation=30, color="white", fontsize=8)
+        ax3.tick_params(colors="white")
+        ax3.spines[:].set_visible(False)
+        ax3.set_ylabel("°C", color="white", fontsize=9)
+        ax3.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
+        st.pyplot(fig3, use_container_width=True)
+        plt.close(fig3)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Monthly summary table
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Monthly Summary")
+    df_month = df_plot.copy()
+    df_month["month"] = df_month["date"].dt.to_period("M")
+    monthly = df_month.groupby("month").agg(
+        Rain_mm=("precip_mm", "sum"),
+        Evap_mm=("et0_mm", "sum"),
+        Deficit_mm=("water_balance_mm", lambda x: max(0, -x.sum())),
+        Avg_Temp_C=("temp_c", "mean"),
+    ).round(1)
+    monthly.index = monthly.index.astype(str)
+    st.dataframe(monthly, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
-    
-    st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-    st.subheader("Academic Bibliography & Equation Index")
-    st.markdown("ENSA's calculations are fully supported by peer-reviewed agricultural and meteorological literature:")
-    
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 3: 14-DAY FORECAST
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_forecast:
+    if df_forecast is None or df_forecast.empty:
+        st.warning("Forecast data unavailable. Check your internet connection.")
+    else:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("14-Day Rainfall Forecast")
+        st.caption("Open-Meteo weather model forecast. Updated daily.")
+        fig4, ax4 = plt.subplots(figsize=(10, 3.2), facecolor="none")
+        ax4.set_facecolor("none")
+        ax4.bar(df_forecast["date"], df_forecast["precip_mm"],
+                color="#818cf8", alpha=0.7, width=0.8, label="Forecast rain (mm)")
+        ax4.axhline(cal["optimal_precip_mm_day"][0], color="#38ef7d",
+                    linestyle="--", linewidth=1.2, alpha=0.7,
+                    label=f"Min crop need ({cal['optimal_precip_mm_day'][0]} mm/day)")
+        ax4.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        plt.xticks(rotation=30, color="white", fontsize=8)
+        ax4.tick_params(colors="white")
+        ax4.spines[:].set_visible(False)
+        ax4.set_ylabel("mm", color="white", fontsize=9)
+        ax4.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
+        st.pyplot(fig4, use_container_width=True)
+        plt.close(fig4)
+
+        total_fc = df_forecast["precip_mm"].sum()
+        et0_fc = df_forecast["et0_mm"].sum()
+        fc_deficit = max(0, et0_fc - total_fc)
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            st.metric("Total forecast rain (14d)", f"{total_fc:.0f} mm")
+        with col_f2:
+            st.metric("Expected evaporation (14d)", f"{et0_fc:.0f} mm")
+        with col_f3:
+            st.metric("Projected water deficit (14d)", f"{fc_deficit:.0f} mm",
+                      delta="additional stress" if fc_deficit > 20 else "manageable",
+                      delta_color="inverse" if fc_deficit > 20 else "normal")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("14-Day Temperature Forecast")
+        fig5, ax5 = plt.subplots(figsize=(10, 2.8), facecolor="none")
+        ax5.set_facecolor("none")
+        ax5.plot(df_forecast["date"], df_forecast["temp_c"], color="#ef4444", linewidth=2)
+        t_lo, t_hi = cal["optimal_temp"]
+        ax5.axhspan(t_lo, t_hi, alpha=0.1, color="#38ef7d",
+                    label=f"Optimal range {t_lo}–{t_hi}°C")
+        ax5.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        plt.xticks(rotation=30, color="white", fontsize=8)
+        ax5.tick_params(colors="white")
+        ax5.spines[:].set_visible(False)
+        ax5.set_ylabel("°C", color="white", fontsize=9)
+        ax5.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
+        st.pyplot(fig5, use_container_width=True)
+        plt.close(fig5)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 4: ABOUT & METHODS
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_about:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("How ENSA Works")
     st.markdown("""
-    * **NDVI (Normalized Difference Vegetation Index)** - *Rouse et al. 1974*:
-      $$\\text{NDVI} = \\frac{\\text{NIR} - \\text{Red}}{\\text{NIR} + \\text{Red}}$$
-      Used to measure raw vegetation greenness and canopy chlorophyll density.
-    * **Surface Soil Moisture Index (SMI) Proxy**:
-      $$\\text{SMI} = 0.5 \\times (1.0 + \\text{NDWI}) - 0.2 \\times \\max(0.0, \\text{NDVI})$$
-      Estimated via Sentinel-2 spectral bands. Represents surface soil wetness (range: 0 to 100%).
-    * **VCI (Vegetation Condition Index)** - *Kogan 1995*:
-      $$\\text{VCI} = \\frac{\\text{NDVI} - \\text{NDVI}_{\\text{min}}}{\\text{NDVI}_{\\text{max}} - \\text{NDVI}_{\\text{min}}} \\times 100$$
-      Calibrates NDVI against 5-year rolling historic minima/maxima to isolate drought-driven vegetation stress.
-    * **SPI-3 (Standardised Precipitation Index)** - *McKee et al. 1993*:
-      Fits long-term precipitation sums to a Gamma probability distribution to establish standardized monthly rainfall departures.
-    * **SPEI (Standardised Precipitation-Evapotranspiration Index)** - *Vicente-Serrano et al. 2010*:
-      Incorporates Potential Evapotranspiration (PET) estimated via the Penman-Monteith equation to account for temperature-driven evaporation stress.
-    * **PDSI (Palmer Drought Severity Index)** - *Palmer 1965*:
-      Accumulates water balance departures over rolling durations to model prolonged meteorological and agricultural drought severity.
-    """)
+ENSA calculates a **0–100 drought risk score** from three real data sources, all free:
+
+| Source | What it provides | Cost |
+|--------|-----------------|------|
+| **Open-Meteo ERA5 archive** | Daily rainfall, temperature, reference evapotranspiration (FAO-56) for any point on Earth back to 1940 | Free · No key |
+| **Open-Meteo forecast** | 14-day weather model forecast | Free · No key |
+| **NOAA CPC NINO3.4** | Monthly El Niño / La Niña SST anomaly (ONI) | Free · No key |
+
+### Scoring Logic
+The risk score combines four components:
+
+1. **SPI-3** (McKee et al. 1993) — Standardised Precipitation Index over 90 days. Fits the historical precipitation series to a Gamma distribution; values below –1.0 indicate drought, below –2.0 indicate severe drought. *Weight: up to 40 pts.*
+
+2. **Cumulative water deficit** (P − ET₀) — Total rainfall minus reference evapotranspiration over 90 days using the FAO-56 Penman-Monteith method. A large negative balance means crops cannot replace the water they lose. *Weight: up to 40 pts.*
+
+3. **Temperature stress** — Mean temperature above 25°C drives additional evaporation. *Weight: up to 20 pts.*
+
+4. **ENSO amplification** — If NINO3.4 ≥ +0.5°C (El Niño), the score is multiplied up to 1.5× because southern Africa rainfall is systematically suppressed during El Niño events (Ropelewski & Halpert 1987).
+
+5. **Crop stage weighting** — Flowering, tasseling, and grain-filling stages amplify the score ×1.35 because water stress during pollination causes irreversible yield loss.
+
+### References
+- McKee et al. (1993) — SPI definition
+- Vicente-Serrano et al. (2010) — SPEI / Penman-Monteith PET
+- Palmer (1965) — PDSI drought severity framework
+- Kogan (1995) — Vegetation Condition Index
+- Ropelewski & Halpert (1987) — ENSO–Southern Africa rainfall teleconnections
+""")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------- DIAGNOSTIC EXPANDER CONSOLE -----------------
-with st.expander("🛠️ Deep Database Inspector Console"):
-    st.write(f"📂 **Active DB Path**: `{DB_PATH}`")
-    conn = get_db_connection()
+    # Saved journal
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("📓 Saved Assessments")
     try:
-        cursor = conn.cursor()
-        
-        # Query tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [row[0] for row in cursor.fetchall()]
-        st.write(f"📁 **Tables Present**: `{tables}`")
-        
-        # Query columns
-        cursor.execute("PRAGMA table_info(forecast_history)")
-        columns = [row[1] for row in cursor.fetchall()]
-        st.write(f"📊 **Columns in `forecast_history`**: `{columns}`")
-        
-        # Query rows
-        cursor.execute("SELECT * FROM forecast_history")
-        rows = [dict(row) for row in cursor.fetchall()]
-        st.write(f"🔍 **Row Count**: `{len(rows)}`")
-        if rows:
-            st.json(rows[-1])
-    except Exception as e:
-        st.error(f"Diagnostic Error: {e}")
-    finally:
+        init_db()
+        conn = get_db_connection()
+        df_j = pd.read_sql_query(
+            "SELECT journal_date, target_district, agent_reasoning, parameter_adjustments "
+            "FROM self_correction_journal ORDER BY id DESC LIMIT 20",
+            conn,
+        )
         conn.close()
+        if df_j.empty:
+            st.info("No saved assessments yet. Use the 'Save assessment' button in Farm Status.")
+        else:
+            for _, row in df_j.iterrows():
+                st.markdown(f"**{row['journal_date']} — {row['target_district']}**")
+                st.caption(row["agent_reasoning"])
+                st.markdown("---")
+    except Exception as e:
+        st.info(f"Database not yet initialised: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
