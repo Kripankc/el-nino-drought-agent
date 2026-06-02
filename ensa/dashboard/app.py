@@ -1,12 +1,11 @@
 """
-ENSA — El Niño Sentinel Agent
+ENSA — El Niño Sentinel Agent  v2.1
 Farmer-facing drought early-warning dashboard.
-All weather data: Open-Meteo (free, no key).
-ENSO data: NOAA CPC (free, no key).
-LLM narrative: optional — user supplies their own API key.
+Weather: Open-Meteo ERA5 (real, free, no key).
+ENSO:    NOAA CPC NINO3.4 (real, free, no key).
+LLM:     optional — user supplies their own Anthropic/OpenAI key.
 """
-import sys
-import os
+import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import streamlit as st
@@ -15,8 +14,10 @@ from streamlit_folium import st_folium
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
+import calendar
 
 from ensa.ingest.openmeteo import fetch_weather, fetch_forecast
 from ensa.ingest.enso import fetch_current_oni
@@ -38,169 +39,645 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CSS — dark glassmorphic theme, kept clean
-# ─────────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  .stApp { background: linear-gradient(135deg,#060913 0%,#020307 100%); color:#e2e8f0; }
-  h1,h2,h3,h4 { color:#fff; font-weight:700; letter-spacing:-.025em; }
-  .card {
-    background:rgba(255,255,255,.03); border-radius:16px; padding:20px 24px;
-    border:1px solid rgba(255,255,255,.08);
-    box-shadow:0 8px 32px rgba(0,0,0,.45); margin-bottom:18px;
-  }
-  .risk-block {
-    border-radius:14px; padding:22px 28px; margin-bottom:18px;
-    border:1px solid rgba(255,255,255,.1);
-  }
-  .risk-score { font-size:3.6rem; font-weight:800; line-height:1; }
-  .risk-label { font-size:1.4rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
-  .risk-summary { font-size:1.05rem; line-height:1.65; color:#e2e8f0; margin-top:12px; }
-  .rec-item { padding:10px 14px; border-radius:10px;
-    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
-    margin-bottom:8px; font-size:.97rem; line-height:1.5; }
-  .stTabs [data-baseweb="tab-list"] { gap:20px; background:transparent; }
-  .stTabs [data-baseweb="tab"] { background:transparent; color:#a0aec0; font-weight:600; }
-  .stTabs [aria-selected="true"] { color:#38ef7d !important;
-    border-bottom-color:#38ef7d !important; }
-  .data-label { font-size:.75rem; color:#a0aec0; text-transform:uppercase;
-    letter-spacing:.06em; margin-bottom:2px; }
-  .data-value { font-size:1.6rem; font-weight:700; color:#fff; }
-  .data-sub   { font-size:.83rem; color:#a0aec0; margin-top:1px; }
-  .enso-chip {
-    display:inline-block; padding:4px 12px; border-radius:20px;
-    font-size:.82rem; font-weight:700; letter-spacing:.03em;
-  }
+  .stApp{background:linear-gradient(135deg,#060913 0%,#020307 100%);color:#e2e8f0;}
+  h1,h2,h3,h4{color:#fff;font-weight:700;letter-spacing:-.025em;}
+  .card{background:rgba(255,255,255,.03);border-radius:16px;padding:20px 24px;
+    border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 32px rgba(0,0,0,.45);margin-bottom:18px;}
+  .rec-item{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06);margin-bottom:8px;font-size:.97rem;line-height:1.55;}
+  .stTabs [data-baseweb="tab-list"]{gap:20px;background:transparent;}
+  .stTabs [data-baseweb="tab"]{background:transparent;color:#a0aec0;font-weight:600;}
+  .stTabs [aria-selected="true"]{color:#38ef7d !important;border-bottom-color:#38ef7d !important;}
+  .kpi-label{font-size:.72rem;color:#a0aec0;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;}
+  .kpi-value{font-size:1.55rem;font-weight:700;color:#fff;}
+  .kpi-sub{font-size:.82rem;color:#a0aec0;margin-top:1px;}
+  .enso-chip{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.82rem;font-weight:700;}
+  .sat-bar-wrap{background:#1a1a2e;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 2px;}
+  .sat-bar-fill{height:100%;border-radius:8px;transition:width .4s;}
+  .stage-pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:600;margin:2px 3px;}
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONSTANTS
+# REGION DETECTION — priority-ordered, most specific first
+# (lat_min, lat_max, lon_min, lon_max)
 # ─────────────────────────────────────────────────────────────────────────────
-PRESETS = {
-    "Mazabuka, Zambia":           {"coords": [-16.25, 27.65], "region": "Zambia"},
-    "Punjab, India":              {"coords": [30.90,  75.85], "region": "India"},
-    "Eldoret, Kenya":             {"coords": [0.51,   35.26], "region": "East Africa"},
-    "Griffith, Australia":        {"coords": [-34.28, 146.04], "region": "Australia"},
-    "Choma, Zambia":              {"coords": [-16.82, 26.98], "region": "Zambia"},
-    "Custom Point":               {"coords": [-16.25, 27.65], "region": "Zambia"},
-}
+_REGION_BOXES = [
+    ("Nepal",           26.0, 30.5,  80.0,  88.5),
+    ("Bangladesh",      20.5, 26.7,  88.0,  92.7),
+    ("Sri Lanka",        5.9,  9.9,  79.5,  82.0),
+    ("Pakistan",        23.0, 37.5,  60.0,  77.5),
+    ("Myanmar",          9.5, 28.5,  92.0, 101.0),
+    ("Southeast Asia", -10.0, 28.0,  95.0, 141.0),
+    ("India",            8.0, 37.0,  68.0,  97.0),
+    ("China",           18.0, 53.0,  73.0, 135.0),
+    ("East Africa",    -12.0, 12.0,  28.0,  42.0),
+    ("West Africa",      4.0, 18.0, -18.0,  16.0),
+    ("Southern Africa",-35.0,-10.0,  10.0,  40.0),
+    ("Australia",      -44.0,-10.0, 112.0, 154.0),
+    ("South America",  -55.0, 12.0, -82.0, -34.0),
+    ("North Africa",    15.0, 38.0, -18.0,  40.0),
+    ("Central Asia",    36.0, 56.0,  45.0,  90.0),
+    ("Europe",          36.0, 72.0, -12.0,  45.0),
+]
 
+def _detect_region(lat, lon):
+    for name, la, lb, loa, lob in _REGION_BOXES:
+        if la <= lat <= lb and loa <= lon <= lob:
+            return name
+    return "Global"
+
+
+def _is_active(cal, month):
+    s, e = cal["start"], cal["end"]
+    return (s <= month <= e) if s <= e else (month >= s or month <= e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CROP CALENDARS  (literature-backed, no fallback values)
+# daily_demand_mm = average FAO crop water requirement during active season
+# optimal_temp    = (min, max) °C for healthy growth
+# ─────────────────────────────────────────────────────────────────────────────
 CROP_CALENDARS = {
-    "Zambia": {
-        "White Maize": {
-            "start": 11, "end": 5, "daily_demand_mm": 5.0,
-            "optimal_temp": (20, 28), "optimal_precip_mm_day": (4.5, 6.5),
-            "stages": {
-                11:"Planting & Emergence", 12:"Planting & Emergence",
-                1:"Vegetative Growth", 2:"Vegetative Growth",
-                3:"Flowering & Tasseling (Critical)", 4:"Grain Fill & Maturity",
-                5:"Harvesting Phase",
-                6:"Fallow", 7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow",
-            },
+    "Nepal": {
+        "Kharif Rice": {
+            "start":11,"end":5,"daily_demand_mm":6.0,"optimal_temp":(22,30),
+            "stages":{6:"Nursery",7:"Transplanting",8:"Tillering",
+                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
+                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
         },
-        "Sorghum / Millet": {
-            "start": 12, "end": 6, "daily_demand_mm": 3.8,
-            "optimal_temp": (24, 32), "optimal_precip_mm_day": (3.0, 4.5),
-            "stages": {
-                12:"Planting & Emergence", 1:"Vegetative Growth", 2:"Vegetative Growth",
-                3:"Vegetative Growth", 4:"Flowering Stage", 5:"Maturity",
-                6:"Harvesting Phase",
-                7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow", 11:"Fallow",
-            },
+        "Winter Wheat (Rabi)": {
+            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(10,22),
+            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
+                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Spring Maize": {
+            "start":3,"end":8,"daily_demand_mm":4.5,"optimal_temp":(18,26),
+            "stages":{3:"Planting",4:"Emergence",5:"Vegetative",
+                      6:"Tasseling (Critical)",7:"Grain Filling",8:"Harvesting",
+                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
+        },
+        "Finger Millet": {
+            "start":6,"end":10,"daily_demand_mm":3.5,"optimal_temp":(20,30),
+            "stages":{6:"Planting",7:"Vegetative",8:"Flowering (Critical)",
+                      9:"Grain Filling",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
         },
     },
     "India": {
         "Kharif Rice": {
-            "start": 6, "end": 11, "daily_demand_mm": 7.5,
-            "optimal_temp": (25, 33), "optimal_precip_mm_day": (6.5, 9.5),
-            "stages": {
-                6:"Nursery & Transplanting", 7:"Tillering",
-                8:"Panicle Initiation", 9:"Flowering (Critical)",
-                10:"Grain Filling", 11:"Harvesting Phase",
-                12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow", 5:"Fallow",
-            },
+            "start":6,"end":11,"daily_demand_mm":7.5,"optimal_temp":(25,33),
+            "stages":{6:"Nursery & Transplanting",7:"Tillering",8:"Panicle Initiation",
+                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
+                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
         },
         "Rabi Wheat": {
-            "start": 11, "end": 4, "daily_demand_mm": 4.2,
-            "optimal_temp": (12, 22), "optimal_precip_mm_day": (2.0, 4.0),
-            "stages": {
-                11:"Sowing & Germination", 12:"Crown Root Initiation",
-                1:"Tillering", 2:"Jointing",
-                3:"Heading & Flowering (Critical)", 4:"Harvesting Phase",
-                5:"Fallow", 6:"Fallow", 7:"Fallow", 8:"Fallow", 9:"Fallow", 10:"Fallow",
-            },
+            "start":11,"end":4,"daily_demand_mm":4.2,"optimal_temp":(12,22),
+            "stages":{11:"Sowing",12:"Crown Root Initiation",1:"Tillering",
+                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Cotton (Kharif)": {
+            "start":5,"end":12,"daily_demand_mm":5.5,"optimal_temp":(25,35),
+            "stages":{5:"Sowing",6:"Seedling",7:"Squaring",8:"Flowering (Critical)",
+                      9:"Boll Development (Critical)",10:"Boll Opening",11:"Picking",12:"Harvesting",
+                      1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Sugarcane": {
+            "start":2,"end":1,"daily_demand_mm":6.0,"optimal_temp":(24,32),
+            "stages":{2:"Planting",3:"Germination",4:"Tillering",5:"Grand Growth",
+                      6:"Grand Growth",7:"Grand Growth (Critical)",8:"Grand Growth (Critical)",
+                      9:"Maturation",10:"Maturation",11:"Harvesting",12:"Harvesting",1:"Harvesting"},
+        },
+        "Groundnut (Kharif)": {
+            "start":6,"end":10,"daily_demand_mm":4.0,"optimal_temp":(25,35),
+            "stages":{6:"Sowing",7:"Vegetative",8:"Flowering & Pegging (Critical)",
+                      9:"Pod Development (Critical)",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
+        },
+    },
+    "Pakistan": {
+        "Kharif Cotton": {
+            "start":5,"end":12,"daily_demand_mm":5.5,"optimal_temp":(26,36),
+            "stages":{5:"Sowing",6:"Seedling",7:"Squaring",8:"Flowering (Critical)",
+                      9:"Boll Development (Critical)",10:"Boll Opening",11:"Picking",12:"Harvesting",
+                      1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Rabi Wheat": {
+            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(10,22),
+            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
+                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Kharif Rice (Basmati)": {
+            "start":6,"end":10,"daily_demand_mm":7.0,"optimal_temp":(24,32),
+            "stages":{6:"Nursery",7:"Transplanting",8:"Vegetative",
+                      9:"Flowering (Critical)",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
+        },
+        "Sugarcane": {
+            "start":3,"end":2,"daily_demand_mm":5.5,"optimal_temp":(22,32),
+            "stages":{3:"Planting",4:"Germination",5:"Tillering",6:"Grand Growth",
+                      7:"Grand Growth (Critical)",8:"Grand Growth (Critical)",9:"Maturation",
+                      10:"Maturation",11:"Harvesting",12:"Harvesting",1:"Harvesting",2:"Harvesting"},
+        },
+    },
+    "Bangladesh": {
+        "Aman Rice (Wet season)": {
+            "start":6,"end":11,"daily_demand_mm":7.0,"optimal_temp":(25,33),
+            "stages":{6:"Nursery",7:"Transplanting",8:"Vegetative",
+                      9:"Panicle Initiation",10:"Flowering (Critical)",11:"Harvesting",
+                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
+        },
+        "Boro Rice (Dry season)": {
+            "start":12,"end":5,"daily_demand_mm":8.0,"optimal_temp":(20,30),
+            "stages":{12:"Nursery",1:"Transplanting",2:"Vegetative",
+                      3:"Panicle Initiation",4:"Flowering (Critical)",5:"Harvesting",
+                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
+        },
+        "Wheat (Rabi)": {
+            "start":11,"end":4,"daily_demand_mm":3.8,"optimal_temp":(12,22),
+            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
+                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Jute": {
+            "start":3,"end":8,"daily_demand_mm":5.0,"optimal_temp":(24,35),
+            "stages":{3:"Sowing",4:"Seedling",5:"Vegetative",6:"Vegetative",
+                      7:"Flowering",8:"Harvesting",
+                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
+        },
+    },
+    "Myanmar": {
+        "Monsoon Rice": {
+            "start":5,"end":10,"daily_demand_mm":7.0,"optimal_temp":(24,32),
+            "stages":{5:"Nursery",6:"Transplanting",7:"Vegetative",8:"Panicle Initiation",
+                      9:"Flowering (Critical)",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Summer Sesame": {
+            "start":3,"end":7,"daily_demand_mm":3.8,"optimal_temp":(26,35),
+            "stages":{3:"Sowing",4:"Seedling",5:"Vegetative",6:"Flowering (Critical)",7:"Harvesting",
+                      8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
+        },
+    },
+    "Southeast Asia": {
+        "Wet Season Rice": {
+            "start":5,"end":11,"daily_demand_mm":7.0,"optimal_temp":(24,33),
+            "stages":{5:"Nursery",6:"Transplanting",7:"Vegetative",8:"Vegetative",
+                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
+                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Cassava": {
+            "start":3,"end":12,"daily_demand_mm":4.0,"optimal_temp":(25,35),
+            "stages":{3:"Planting",4:"Establishment",5:"Vegetative",6:"Vegetative (Critical)",
+                      7:"Tuber Bulking (Critical)",8:"Tuber Bulking",9:"Maturation",
+                      10:"Maturation",11:"Harvest Ready",12:"Harvesting",
+                      1:"Fallow",2:"Fallow"},
+        },
+        "Sugarcane": {
+            "start":1,"end":12,"daily_demand_mm":5.5,"optimal_temp":(24,33),
+            "stages":{1:"Grand Growth",2:"Grand Growth",3:"Grand Growth (Critical)",
+                      4:"Maturation",5:"Harvesting",6:"Planting / Ratoon",
+                      7:"Germination",8:"Tillering",9:"Grand Growth",
+                      10:"Grand Growth (Critical)",11:"Maturation",12:"Harvesting"},
+        },
+    },
+    "China": {
+        "Double-Crop Rice (1st)": {
+            "start":4,"end":8,"daily_demand_mm":6.5,"optimal_temp":(23,30),
+            "stages":{4:"Transplanting",5:"Tillering",6:"Panicle Initiation",
+                      7:"Flowering (Critical)",8:"Harvesting",
+                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Winter Wheat": {
+            "start":10,"end":6,"daily_demand_mm":4.5,"optimal_temp":(10,22),
+            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",
+                      1:"Overwintering",2:"Returning Green",3:"Jointing",
+                      4:"Heading",5:"Flowering (Critical)",6:"Harvesting",
+                      7:"Fallow",8:"Fallow",9:"Fallow"},
+        },
+        "Summer Maize": {
+            "start":6,"end":9,"daily_demand_mm":5.0,"optimal_temp":(22,30),
+            "stages":{6:"Planting",7:"Vegetative",8:"Tasseling & Silking (Critical)",
+                      9:"Grain Fill & Harvest",
+                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
         },
     },
     "East Africa": {
         "Maize (Long Rains)": {
-            "start": 3, "end": 9, "daily_demand_mm": 4.8,
-            "optimal_temp": (18, 26), "optimal_precip_mm_day": (4.0, 6.0),
-            "stages": {
-                3:"Planting & Emergence", 4:"Vegetative", 5:"Vegetative",
-                6:"Tasseling & Silking (Critical)", 7:"Grain Filling",
-                8:"Cob Maturity", 9:"Harvesting Phase",
-                10:"Fallow", 11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow",
-            },
+            "start":3,"end":9,"daily_demand_mm":4.8,"optimal_temp":(18,26),
+            "stages":{3:"Planting",4:"Vegetative",5:"Vegetative",
+                      6:"Tasseling & Silking (Critical)",7:"Grain Filling",8:"Maturity",9:"Harvesting",
+                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
+        },
+        "Maize (Short Rains)": {
+            "start":10,"end":2,"daily_demand_mm":4.8,"optimal_temp":(18,26),
+            "stages":{10:"Planting",11:"Vegetative",12:"Tasseling (Critical)",
+                      1:"Grain Filling",2:"Harvesting",
+                      3:"Fallow",4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
         },
         "Sorghum": {
-            "start": 4, "end": 10, "daily_demand_mm": 3.5,
-            "optimal_temp": (22, 30), "optimal_precip_mm_day": (2.5, 4.5),
-            "stages": {
-                4:"Planting", 5:"Vegetative", 6:"Vegetative",
-                7:"Flowering", 8:"Grain Filling", 9:"Maturity",
-                10:"Harvesting Phase",
-                11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow",
-            },
+            "start":4,"end":10,"daily_demand_mm":3.5,"optimal_temp":(22,32),
+            "stages":{4:"Planting",5:"Vegetative",6:"Vegetative",7:"Flowering (Critical)",
+                      8:"Grain Filling",9:"Maturity",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Tea": {
+            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(15,25),
+            "stages":{1:"Dormant",2:"Bud Burst",3:"Flush (Critical)",4:"Flush (Critical)",
+                      5:"Flush (Critical)",6:"Flush",7:"Flush",8:"Flush (Critical)",
+                      9:"Flush",10:"Flush",11:"Semi-dormant",12:"Dormant"},
+        },
+        "Coffee (Arabica)": {
+            "start":3,"end":11,"daily_demand_mm":4.0,"optimal_temp":(15,24),
+            "stages":{3:"Vegetative",4:"Vegetative",5:"Flowering (Critical)",6:"Fruit Set",
+                      7:"Fruit Development (Critical)",8:"Fruit Development",9:"Ripening",
+                      10:"Harvesting",11:"Harvesting",12:"Fallow",1:"Fallow",2:"Fallow"},
+        },
+    },
+    "West Africa": {
+        "Pearl Millet": {
+            "start":5,"end":10,"daily_demand_mm":3.8,"optimal_temp":(25,35),
+            "stages":{5:"Planting",6:"Vegetative",7:"Vegetative",8:"Flowering (Critical)",
+                      9:"Grain Filling",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Sorghum": {
+            "start":5,"end":10,"daily_demand_mm":4.0,"optimal_temp":(25,35),
+            "stages":{5:"Planting",6:"Vegetative",7:"Vegetative",8:"Flowering (Critical)",
+                      9:"Grain Filling",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Groundnut": {
+            "start":5,"end":10,"daily_demand_mm":3.5,"optimal_temp":(25,35),
+            "stages":{5:"Sowing",6:"Vegetative",7:"Flowering & Pegging (Critical)",
+                      8:"Pod Development (Critical)",9:"Maturation",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Cowpea": {
+            "start":6,"end":10,"daily_demand_mm":3.0,"optimal_temp":(25,35),
+            "stages":{6:"Planting",7:"Vegetative",8:"Flowering (Critical)",
+                      9:"Pod Filling",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
+        },
+    },
+    "Southern Africa": {
+        "White Maize": {
+            "start":11,"end":5,"daily_demand_mm":5.0,"optimal_temp":(20,28),
+            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",2:"Vegetative",
+                      3:"Flowering & Tasseling (Critical)",4:"Grain Fill",5:"Harvesting",
+                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Sorghum / Millet": {
+            "start":12,"end":6,"daily_demand_mm":3.8,"optimal_temp":(24,32),
+            "stages":{12:"Planting",1:"Vegetative",2:"Vegetative",3:"Vegetative",
+                      4:"Flowering (Critical)",5:"Maturity",6:"Harvesting",
+                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
+        },
+        "Groundnut": {
+            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,32),
+            "stages":{11:"Sowing",12:"Vegetative",1:"Flowering & Pegging (Critical)",
+                      2:"Pod Development (Critical)",3:"Maturation",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Soybean": {
+            "start":11,"end":4,"daily_demand_mm":4.5,"optimal_temp":(20,30),
+            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",
+                      2:"Flowering (Critical)",3:"Pod Fill (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Cassava": {
+            "start":11,"end":10,"daily_demand_mm":3.5,"optimal_temp":(22,32),
+            "stages":{11:"Planting",12:"Establishment (Critical)",1:"Vegetative (Critical)",
+                      2:"Tuber Initiation",3:"Tuber Bulking (Critical)",4:"Tuber Bulking",
+                      5:"Maturation",6:"Maturation",7:"Maturation",8:"Maturation",
+                      9:"Harvest Ready",10:"Harvesting"},
+        },
+        "Tobacco (Flue-cured)": {
+            "start":10,"end":3,"daily_demand_mm":4.5,"optimal_temp":(20,28),
+            "stages":{10:"Nursery",11:"Transplanting",12:"Establishment",
+                      1:"Grand Growth (Critical)",2:"Maturation",3:"Harvesting",
+                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
+        },
+    },
+    # Use Southern Africa calendars for plain "Zambia" region too
+    "Zambia": {
+        "White Maize": {
+            "start":11,"end":5,"daily_demand_mm":5.0,"optimal_temp":(20,28),
+            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",2:"Vegetative",
+                      3:"Flowering & Tasseling (Critical)",4:"Grain Fill",5:"Harvesting",
+                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Sorghum / Millet": {
+            "start":12,"end":6,"daily_demand_mm":3.8,"optimal_temp":(24,32),
+            "stages":{12:"Planting",1:"Vegetative",2:"Vegetative",3:"Vegetative",
+                      4:"Flowering (Critical)",5:"Maturity",6:"Harvesting",
+                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
+        },
+        "Groundnut": {
+            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,32),
+            "stages":{11:"Sowing",12:"Vegetative",1:"Flowering & Pegging (Critical)",
+                      2:"Pod Development (Critical)",3:"Maturation",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Soybean": {
+            "start":11,"end":4,"daily_demand_mm":4.5,"optimal_temp":(20,30),
+            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",
+                      2:"Flowering (Critical)",3:"Pod Fill (Critical)",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
         },
     },
     "Australia": {
         "Winter Wheat": {
-            "start": 5, "end": 11, "daily_demand_mm": 3.8,
-            "optimal_temp": (10, 20), "optimal_precip_mm_day": (2.0, 4.0),
-            "stages": {
-                5:"Sowing & Emergence", 6:"Tillering", 7:"Jointing",
-                8:"Booting", 9:"Heading & Flowering (Critical)",
-                10:"Grain Fill", 11:"Harvesting Phase",
-                12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow",
-            },
+            "start":5,"end":11,"daily_demand_mm":3.8,"optimal_temp":(10,20),
+            "stages":{5:"Sowing",6:"Tillering",7:"Jointing",8:"Booting",
+                      9:"Heading & Flowering (Critical)",10:"Grain Fill",11:"Harvesting",
+                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
         },
         "Barley": {
-            "start": 5, "end": 10, "daily_demand_mm": 3.6,
-            "optimal_temp": (12, 22), "optimal_precip_mm_day": (2.0, 4.0),
-            "stages": {
-                5:"Sowing & Emergence", 6:"Tillering", 7:"Jointing",
-                8:"Flowering (Critical)", 9:"Grain Filling",
-                10:"Harvesting Phase",
-                11:"Fallow", 12:"Fallow", 1:"Fallow", 2:"Fallow", 3:"Fallow", 4:"Fallow",
-            },
+            "start":5,"end":10,"daily_demand_mm":3.6,"optimal_temp":(12,22),
+            "stages":{5:"Sowing",6:"Tillering",7:"Jointing",8:"Flowering (Critical)",
+                      9:"Grain Filling",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
+        },
+        "Canola": {
+            "start":4,"end":10,"daily_demand_mm":3.5,"optimal_temp":(10,22),
+            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
+                      8:"Pod Fill (Critical)",9:"Maturation",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Summer Sorghum": {
+            "start":10,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,35),
+            "stages":{10:"Planting",11:"Vegetative",12:"Vegetative",1:"Flowering (Critical)",
+                      2:"Grain Fill",3:"Maturity",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
+        },
+    },
+    "South America": {
+        "Soybean (Summer)": {
+            "start":10,"end":3,"daily_demand_mm":5.0,"optimal_temp":(22,32),
+            "stages":{10:"Planting",11:"Emergence",12:"Vegetative",
+                      1:"Flowering (Critical)",2:"Pod Fill (Critical)",3:"Harvesting",
+                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
+        },
+        "Maize (Summer)": {
+            "start":10,"end":4,"daily_demand_mm":5.5,"optimal_temp":(20,30),
+            "stages":{10:"Planting",11:"Emergence",12:"Vegetative",
+                      1:"Tasseling (Critical)",2:"Grain Fill",3:"Maturity",4:"Harvesting",
+                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
+        },
+        "Coffee (Arabica)": {
+            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(15,24),
+            "stages":{1:"Dormant",2:"Flowering (Critical)",3:"Fruit Set",4:"Fruit Development",
+                      5:"Fruit Development (Critical)",6:"Ripening",7:"Harvesting",
+                      8:"Harvesting",9:"Post-Harvest",10:"Vegetative",11:"Vegetative",12:"Dormant"},
+        },
+    },
+    "North Africa": {
+        "Winter Wheat": {
+            "start":11,"end":6,"daily_demand_mm":4.0,"optimal_temp":(10,22),
+            "stages":{11:"Sowing",12:"Germination",1:"Tillering",2:"Jointing",
+                      3:"Heading",4:"Flowering (Critical)",5:"Grain Fill",6:"Harvesting",
+                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Barley": {
+            "start":11,"end":5,"daily_demand_mm":3.5,"optimal_temp":(8,22),
+            "stages":{11:"Sowing",12:"Germination",1:"Tillering",2:"Jointing",
+                      3:"Heading",4:"Flowering (Critical)",5:"Harvesting",
+                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
+        },
+        "Olive": {
+            "start":1,"end":12,"daily_demand_mm":2.0,"optimal_temp":(10,30),
+            "stages":{1:"Dormant",2:"Bud Swell",3:"Flowering (Critical)",4:"Fruit Set",
+                      5:"Fruit Growth",6:"Pit Hardening",7:"Fruit Development (Critical)",
+                      8:"Ripening",9:"Ripening",10:"Harvesting",11:"Harvesting",12:"Dormant"},
+        },
+    },
+    "Central Asia": {
+        "Cotton": {
+            "start":4,"end":10,"daily_demand_mm":5.5,"optimal_temp":(25,35),
+            "stages":{4:"Sowing",5:"Emergence",6:"Squaring",7:"Flowering (Critical)",
+                      8:"Boll Development (Critical)",9:"Boll Opening",10:"Picking",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Winter Wheat": {
+            "start":10,"end":7,"daily_demand_mm":4.0,"optimal_temp":(8,20),
+            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",1:"Overwintering",
+                      2:"Returning Green",3:"Jointing",4:"Heading",
+                      5:"Flowering (Critical)",6:"Grain Fill",7:"Harvesting",
+                      8:"Fallow",9:"Fallow"},
+        },
+    },
+    "Europe": {
+        "Winter Wheat": {
+            "start":10,"end":7,"daily_demand_mm":3.5,"optimal_temp":(8,20),
+            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",1:"Overwintering",
+                      2:"Returning Green",3:"Jointing",4:"Heading",
+                      5:"Flowering (Critical)",6:"Grain Fill",7:"Harvesting",
+                      8:"Fallow",9:"Fallow"},
+        },
+        "Sunflower": {
+            "start":4,"end":9,"daily_demand_mm":4.0,"optimal_temp":(18,28),
+            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
+                      8:"Seed Fill (Critical)",9:"Harvesting",
+                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Maize (Summer)": {
+            "start":4,"end":10,"daily_demand_mm":4.5,"optimal_temp":(18,28),
+            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Tasseling (Critical)",
+                      8:"Grain Fill (Critical)",9:"Maturation",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+    },
+    "Global": {
+        "Generic Cereal": {
+            "start":4,"end":10,"daily_demand_mm":4.5,"optimal_temp":(15,28),
+            "stages":{4:"Planting",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
+                      8:"Grain Fill",9:"Maturation",10:"Harvesting",
+                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+    },
+    "Sri Lanka": {
+        "Maha Rice (Main)": {
+            "start":9,"end":3,"daily_demand_mm":7.0,"optimal_temp":(24,32),
+            "stages":{9:"Nursery",10:"Transplanting",11:"Vegetative",12:"Panicle Initiation",
+                      1:"Flowering (Critical)",2:"Grain Fill",3:"Harvesting",
+                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow"},
+        },
+        "Yala Rice (Secondary)": {
+            "start":4,"end":8,"daily_demand_mm":7.0,"optimal_temp":(26,34),
+            "stages":{4:"Nursery",5:"Transplanting",6:"Vegetative",
+                      7:"Flowering (Critical)",8:"Harvesting",
+                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
+        },
+        "Tea": {
+            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(16,24),
+            "stages":{1:"Dormant",2:"Bud Burst",3:"Flush (Critical)",4:"Flush (Critical)",
+                      5:"Flush",6:"Flush",7:"Flush (Critical)",8:"Flush (Critical)",
+                      9:"Flush",10:"Flush",11:"Semi-dormant",12:"Dormant"},
         },
     },
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PRESET LOCATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+PRESETS = {
+    "Mazabuka, Zambia":        {"coords": [-16.25,  27.65]},
+    "Kathmandu Valley, Nepal": {"coords": [27.70,   85.30]},
+    "Punjab, India":           {"coords": [30.90,   75.85]},
+    "Eldoret, Kenya":          {"coords": [0.51,    35.26]},
+    "Griffith, Australia":     {"coords": [-34.28, 146.04]},
+    "Kano, Nigeria":           {"coords": [12.00,    8.52]},
+    "Chiang Mai, Thailand":    {"coords": [18.79,   98.98]},
+    "Lahore, Pakistan":        {"coords": [31.55,   74.34]},
+    "São Paulo State, Brazil": {"coords": [-22.90,  -47.06]},
+    "Custom Point":            {"coords": [-16.25,  27.65]},
+}
 
-def _detect_region(lat: float, lon: float) -> str:
-    if 65 < lon < 95 and 5 < lat < 38:
-        return "India"
-    if 110 < lon < 155 and -45 < lat < -10:
-        return "Australia"
-    if 30 < lon < 45 and -15 < lat < 15:
-        return "East Africa"
-    return "Zambia"
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS — charts
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _gauge(score, color):
+    """Half-donut risk gauge."""
+    fig, ax = plt.subplots(figsize=(3.6, 2.2), facecolor="none")
+    ax.set_facecolor("none")
+    θ = np.linspace(np.pi, 0, 300)
+    ax.plot(np.cos(θ), np.sin(θ), color="#1e2535", linewidth=22, solid_capstyle="round", zorder=1)
+    if score > 0:
+        θv = np.linspace(np.pi, np.pi - (min(score,100)/100)*np.pi, 300)
+        ax.plot(np.cos(θv), np.sin(θv), color=color, linewidth=22, solid_capstyle="round", zorder=2)
+    ax.text(0, 0.18, f"{score:.0f}", ha="center", va="center",
+            fontsize=38, fontweight="bold", color="white", zorder=3)
+    ax.text(0, -0.22, "/ 100  drought risk", ha="center", va="center",
+            fontsize=8.5, color="#a0aec0", zorder=3)
+    ax.set_xlim(-1.4, 1.4); ax.set_ylim(-0.55, 1.4); ax.axis("off")
+    return fig
 
 
-def _is_active_season(cal: dict, month: int) -> bool:
-    s, e = cal["start"], cal["end"]
-    if s <= e:
-        return s <= month <= e
-    return month >= s or month <= e
+def _monthly_bar_chart(df_hist, daily_demand_mm, cal, title="Monthly Rainfall vs Crop Need"):
+    """Grouped bar: actual monthly rain vs crop daily demand × days in month."""
+    df = df_hist.copy()
+    df["month"] = df["date"].dt.month
+    df["year"]  = df["date"].dt.year
+    df["ym"]    = df["date"].dt.to_period("M")
+
+    monthly = df.groupby("ym").agg(
+        precip_mm=("precip_mm","sum"),
+        et0_mm=("et0_mm","sum"),
+        n_days=("precip_mm","count"),
+    ).reset_index()
+    monthly["needed_mm"] = monthly.apply(
+        lambda r: daily_demand_mm * r["n_days"] if _is_active(cal, r["ym"].month) else 0, axis=1
+    )
+    monthly["label"] = monthly["ym"].dt.strftime("%b %y")
+
+    fig, ax = plt.subplots(figsize=(10, 3.4), facecolor="none")
+    ax.set_facecolor("none")
+    x = np.arange(len(monthly))
+    w = 0.38
+    bars_got  = ax.bar(x - w/2, monthly["precip_mm"], w, color="#3b82f6", alpha=0.8, label="Actual rain (mm)")
+    bars_need = ax.bar(x + w/2, monthly["needed_mm"], w, color="#f97316", alpha=0.7, label="Crop water need (mm)")
+
+    # Colour bars red when supply < 50% of need
+    for i, (g, n) in enumerate(zip(monthly["precip_mm"], monthly["needed_mm"])):
+        if n > 0 and g < n * 0.5:
+            bars_got[i].set_color("#ef4444")
+            bars_got[i].set_alpha(0.9)
+
+    ax.set_xticks(x); ax.set_xticklabels(monthly["label"], fontsize=8, color="white", rotation=30, ha="right")
+    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
+    ax.set_ylabel("mm", color="white", fontsize=9)
+    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+    ax.set_title(title, color="white", fontsize=10, pad=8)
+    return fig
+
+
+def _forecast_chart(df_fc, daily_demand_mm, crop_name):
+    """Forecast bars with daily crop-need line."""
+    fig, ax = plt.subplots(figsize=(10, 3.0), facecolor="none")
+    ax.set_facecolor("none")
+    colors = ["#60a5fa" if r >= daily_demand_mm else "#f87171"
+              for r in df_fc["precip_mm"]]
+    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.85, width=0.8)
+    ax.axhline(daily_demand_mm, color="#38ef7d", linestyle="--", linewidth=1.5,
+               label=f"Daily crop need ({daily_demand_mm} mm)")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
+    plt.xticks(rotation=30, color="white", fontsize=8)
+    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
+    ax.set_ylabel("mm/day", color="white", fontsize=9)
+    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+    ax.set_title(f"14-Day Forecast — Blue = meets {crop_name} need, Red = deficit day",
+                 color="white", fontsize=9, pad=6)
+    return fig
+
+
+def _water_balance_chart(df_hist):
+    """Cumulative P–ET0 over last 90 days."""
+    df = df_hist.tail(90).copy()
+    cum = df["water_balance_mm"].cumsum()
+    fig, ax = plt.subplots(figsize=(10, 2.8), facecolor="none")
+    ax.set_facecolor("none")
+    ax.plot(df["date"], cum, color="#e2e8f0", linewidth=1.8)
+    ax.fill_between(df["date"], cum, 0, where=(cum < 0), color="#ef4444", alpha=0.25, label="Moisture deficit")
+    ax.fill_between(df["date"], cum, 0, where=(cum >= 0), color="#38ef7d", alpha=0.18, label="Moisture surplus")
+    ax.axhline(0, color="white", linewidth=0.6, alpha=0.35)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+    plt.xticks(rotation=30, color="white", fontsize=8)
+    ax.tick_params(colors="white"); ax.spines[:].set_visible(False)
+    ax.set_ylabel("mm cumulative", color="white", fontsize=9)
+    ax.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+    return fig
+
+
+def _crop_calendar_strip(cal, current_month):
+    """Horizontal 12-month crop calendar with current month marked."""
+    months = list(range(1, 13))
+    colors = []
+    for m in months:
+        stage = cal["stages"][m]
+        if "Critical" in stage:
+            colors.append("#ef4444")
+        elif "Fallow" in stage or "Dormant" in stage or "Overwintering" in stage:
+            colors.append("#1e2535")
+        elif "Harvesting" in stage:
+            colors.append("#f59e0b")
+        else:
+            colors.append("#22c55e")
+
+    fig, ax = plt.subplots(figsize=(10, 1.1), facecolor="none")
+    ax.set_facecolor("none")
+    for i, (m, c) in enumerate(zip(months, colors)):
+        rect = mpatches.FancyBboxPatch((i, 0), 0.88, 0.9, boxstyle="round,pad=0.04",
+                                       facecolor=c, edgecolor="none", alpha=0.85)
+        ax.add_patch(rect)
+        label = calendar.month_abbr[m]
+        ax.text(i + 0.44, 0.45, label, ha="center", va="center",
+                color="white", fontsize=8, fontweight="bold")
+        if m == current_month:
+            ax.add_patch(mpatches.FancyBboxPatch((i-0.05, -0.1), 0.98, 1.1,
+                boxstyle="round,pad=0.04", facecolor="none",
+                edgecolor="#38ef7d", linewidth=2.5))
+    ax.set_xlim(-0.1, 12.1); ax.set_ylim(-0.25, 1.2); ax.axis("off")
+    # Legend
+    for x_pos, label, col in [(0, "Fallow", "#1e2535"),
+                               (3, "Growing", "#22c55e"),
+                               (6, "Critical / Flowering", "#ef4444"),
+                               (9.2, "Harvesting", "#f59e0b")]:
+        ax.add_patch(mpatches.Rectangle((x_pos-0.1, -0.22), 0.3, 0.18, color=col))
+        ax.text(x_pos+0.25, -0.14, label, color="#a0aec0", fontsize=6.5, va="center")
+    return fig
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CACHED DATA FETCHERS
-# Errors bubble up to the call site — never swallowed silently.
-# st.session_state must NOT be set inside @st.cache_data.
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -221,10 +698,8 @@ def _cached_enso():
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────────────────
-if "point" not in st.session_state:
-    st.session_state.point = PRESETS["Mazabuka, Zambia"]["coords"]
-if "preset_name" not in st.session_state:
-    st.session_state.preset_name = "Mazabuka, Zambia"
+if "point"       not in st.session_state: st.session_state.point = PRESETS["Mazabuka, Zambia"]["coords"]
+if "preset_name" not in st.session_state: st.session_state.preset_name = "Mazabuka, Zambia"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR
@@ -232,17 +707,12 @@ if "preset_name" not in st.session_state:
 st.sidebar.markdown(
     "<h2 style='text-align:center;margin-bottom:4px'>🌾 ENSA</h2>"
     "<p style='text-align:center;color:#a0aec0;font-size:.85rem;margin-top:0'>"
-    "El Niño Sentinel Agent</p>",
-    unsafe_allow_html=True,
-)
+    "El Niño Sentinel Agent</p>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
 st.sidebar.subheader("1. Location")
-preset_name = st.sidebar.selectbox(
-    "Select preset location",
-    list(PRESETS.keys()),
-    index=list(PRESETS.keys()).index(st.session_state.preset_name),
-)
+preset_name = st.sidebar.selectbox("Preset location", list(PRESETS.keys()),
+    index=list(PRESETS.keys()).index(st.session_state.preset_name))
 if preset_name != st.session_state.preset_name:
     st.session_state.preset_name = preset_name
     if preset_name != "Custom Point":
@@ -250,11 +720,8 @@ if preset_name != st.session_state.preset_name:
     st.rerun()
 
 c1, c2 = st.sidebar.columns(2)
-with c1:
-    lat_in = st.number_input("Latitude", value=float(st.session_state.point[0]), format="%.4f")
-with c2:
-    lon_in = st.number_input("Longitude", value=float(st.session_state.point[1]), format="%.4f")
-
+with c1: lat_in = st.number_input("Latitude",  value=float(st.session_state.point[0]), format="%.4f")
+with c2: lon_in = st.number_input("Longitude", value=float(st.session_state.point[1]), format="%.4f")
 if [lat_in, lon_in] != list(st.session_state.point):
     st.session_state.point = [lat_in, lon_in]
     st.session_state.preset_name = "Custom Point"
@@ -262,55 +729,45 @@ if [lat_in, lon_in] != list(st.session_state.point):
 
 lat, lon = st.session_state.point
 active_region = _detect_region(lat, lon)
+cal_region = CROP_CALENDARS.get(active_region, CROP_CALENDARS["Global"])
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("2. Crop")
-available_crops = list(CROP_CALENDARS.get(active_region, CROP_CALENDARS["Zambia"]).keys())
-crop_choice = st.sidebar.selectbox("Crop type", available_crops)
-cal = CROP_CALENDARS[active_region][crop_choice]
+crop_choice = st.sidebar.selectbox("Crop type", list(cal_region.keys()))
+cal = cal_region[crop_choice]
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("3. Assessment Date")
-st.sidebar.caption("Pick any past date to analyse historical conditions, or today for the current situation.")
-assessment_date = st.sidebar.date_input(
-    "Date",
+st.sidebar.caption("Pick any past date to analyse historical conditions.")
+assessment_date = st.sidebar.date_input("Date",
     value=datetime.now().date(),
-    min_value=datetime(2000, 1, 1).date(),
-    max_value=(datetime.now() + timedelta(days=14)).date(),
-)
-assessment_month = assessment_date.month
-crop_stage = cal["stages"][assessment_month]
-is_active = _is_active_season(cal, assessment_month)
-is_forecast_mode = assessment_date > (datetime.now() - timedelta(days=5)).date()
+    min_value=datetime(2000,1,1).date(),
+    max_value=(datetime.now()+timedelta(days=14)).date())
+a_month = assessment_date.month
+crop_stage = cal["stages"][a_month]
+is_active  = _is_active(cal, a_month)
+is_fc_mode = assessment_date > (datetime.now()-timedelta(days=5)).date()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("4. AI Analysis (optional)")
-st.sidebar.caption(
-    "The core dashboard is 100% free. Optionally, paste your own API key "
-    "below to unlock an AI-generated narrative for your farm."
-)
-ai_provider = st.sidebar.selectbox("AI Provider", ["Anthropic (Claude)", "OpenAI (GPT-4o-mini)"])
+st.sidebar.caption("Core dashboard is 100% free. Paste your own API key for an AI-written narrative.")
+ai_provider = st.sidebar.selectbox("Provider", ["Anthropic (Claude)", "OpenAI (GPT-4o-mini)"])
 ai_key = st.sidebar.text_input("API Key", type="password", placeholder="sk-ant-... or sk-...")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(
-    "<div style='font-size:.78rem;color:#718096;text-align:center'>"
-    "ENSA v2.0 · Weather: Open-Meteo · ENSO: NOAA CPC<br>"
-    "Free & open-source</div>",
-    unsafe_allow_html=True,
-)
+    "<div style='font-size:.75rem;color:#718096;text-align:center'>"
+    "Weather: Open-Meteo ERA5 · ENSO: NOAA CPC<br>All data is real — no simulations.</div>",
+    unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOAD DATA
 # ─────────────────────────────────────────────────────────────────────────────
-_lat_r = round(lat, 3)
-_lon_r = round(lon, 3)
-
-df_weather  = None
-df_forecast = None
+_lat_r, _lon_r = round(lat, 3), round(lon, 3)
+df_weather = df_forecast = None
 weather_error = None
 
-with st.spinner("Loading weather data for your location…"):
+with st.spinner("Fetching real weather data from Open-Meteo ERA5…"):
     try:
         df_weather = _cached_weather(_lat_r, _lon_r)
     except Exception as e:
@@ -329,451 +786,373 @@ data_ok = df_weather is not None and not df_weather.empty
 st.markdown(
     "<h1 style='background:linear-gradient(90deg,#38ef7d,#11998e);"
     "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>"
-    "El Niño Sentinel Agent (ENSA)</h1>",
-    unsafe_allow_html=True,
-)
+    "El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='color:#a0aec0;font-size:1.05rem;margin-top:-8px'>"
-    "Real-time agricultural drought early warning · Powered by Open-Meteo & NOAA</p>",
-    unsafe_allow_html=True,
-)
+    f"<p style='color:#a0aec0;font-size:1.0rem;margin-top:-8px'>"
+    f"Agricultural drought early-warning · {active_region} · "
+    f"All data live from Open-Meteo ERA5 & NOAA CPC</p>", unsafe_allow_html=True)
 
-# ENSO STATUS STRIP
+# ENSO BANNER
 oni_v = oni["value"]
-if oni_v >= 1.5:
-    enso_bg, enso_txt = "#7f1d1d", "#fca5a5"
-elif oni_v >= 0.5:
-    enso_bg, enso_txt = "#78350f", "#fcd34d"
-elif oni_v <= -0.5:
-    enso_bg, enso_txt = "#1e3a5f", "#93c5fd"
-else:
-    enso_bg, enso_txt = "#14532d", "#86efac"
+if oni_v >= 1.5:   enso_bg, enso_txt = "#7f1d1d","#fca5a5"
+elif oni_v >= 0.5: enso_bg, enso_txt = "#78350f","#fcd34d"
+elif oni_v <= -0.5:enso_bg, enso_txt = "#1e3a5f","#93c5fd"
+else:              enso_bg, enso_txt = "#14532d","#86efac"
 
+live_tag = "🔴 LIVE" if "Offline" not in oni["source"] else "⚫ OFFLINE"
 st.markdown(
     f"<div style='background:{enso_bg};border-radius:10px;padding:10px 18px;"
-    f"margin-bottom:18px;display:flex;align-items:center;gap:16px'>"
+    f"margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap'>"
     f"<span class='enso-chip' style='background:rgba(255,255,255,.15);color:{enso_txt}'>"
     f"NINO3.4: {oni_v:+.2f}°C</span>"
-    f"<span style='color:{enso_txt};font-weight:600'>{oni['phase']}</span>"
-    f"<span style='color:rgba(255,255,255,.55);font-size:.85rem'>"
-    f"Source: {oni['source']} · {oni['month_name']} {oni['year']}</span>"
-    f"</div>",
-    unsafe_allow_html=True,
-)
+    f"<span style='color:{enso_txt};font-weight:700'>{oni['phase']}</span>"
+    f"<span style='color:rgba(255,255,255,.55);font-size:.83rem'>"
+    f"{live_tag} · {oni['month_name']} {oni['year']} · {oni['source']}</span>"
+    f"</div>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
-tab_farm, tab_trends, tab_forecast, tab_about = st.tabs([
-    "🌾 Farm Status",
-    "📈 90-Day Trends",
-    "🔮 14-Day Outlook",
-    "📖 About & Methods",
-])
+tab_status, tab_history, tab_fc, tab_about = st.tabs([
+    "🌾 Farm Status", "📈 90-Day History", "🔮 14-Day Forecast", "📖 Methodology"])
 
-# ═════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # TAB 1: FARM STATUS
-# ═════════════════════════════════════════════════════════════════════════════
-with tab_farm:
-
-    col_map, col_info = st.columns([3, 1])
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_status:
+    col_map, col_info = st.columns([3,1])
 
     with col_map:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("📍 Farm Location")
-        st.caption("Click anywhere on the map to select your farm location.")
+        st.subheader("📍 Select Your Farm")
+        st.caption("Click the map to move the pin to your farm location.")
         m = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
-        folium.Marker(
-            location=[lat, lon],
-            tooltip=f"{lat:.4f}°, {lon:.4f}°",
-            icon=folium.Icon(color="green", icon="leaf"),
-        ).add_to(m)
-        map_out = st_folium(m, height=320, use_container_width=True, key="main_map")
+        folium.Marker([lat, lon], tooltip=f"{lat:.4f}°, {lon:.4f}°",
+                      icon=folium.Icon(color="green", icon="leaf")).add_to(m)
+        map_out = st_folium(m, height=300, use_container_width=True, key="main_map")
         if map_out and map_out.get("last_clicked"):
             clat = map_out["last_clicked"]["lat"]
             clon = map_out["last_clicked"]["lng"]
-            if [round(clat, 3), round(clon, 3)] != [round(lat, 3), round(lon, 3)]:
+            if [round(clat,3), round(clon,3)] != [round(lat,3), round(lon,3)]:
                 st.session_state.point = [clat, clon]
                 st.session_state.preset_name = "Custom Point"
-                st.toast(f"📍 Location set to ({clat:.4f}°, {clon:.4f}°)")
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_info:
-        st.markdown("<div class='card' style='height:100%'>", unsafe_allow_html=True)
-        st.subheader("Location")
-        st.markdown(f"<div class='data-label'>Coordinates</div><div class='data-value' style='font-size:1rem'>{lat:.4f}°, {lon:.4f}°</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='data-label' style='margin-top:12px'>Region</div><div class='data-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='data-label' style='margin-top:12px'>Crop</div><div class='data-value' style='font-size:1.1rem'>{crop_choice}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='data-label' style='margin-top:12px'>Crop Stage ({assessment_date.strftime('%b %Y')})</div><div class='data-value' style='font-size:.95rem'>{crop_stage}</div>", unsafe_allow_html=True)
-        if is_forecast_mode:
-            st.info("🔮 Forecast mode")
-        elif not is_active:
-            st.warning("Off-season / fallow")
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label'>Detected Region</div><div class='kpi-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Crop</div><div class='kpi-value' style='font-size:1.05rem'>{crop_choice}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Stage · {assessment_date.strftime('%b %Y')}</div><div class='kpi-value' style='font-size:.92rem'>{crop_stage}</div>", unsafe_allow_html=True)
+        if is_fc_mode:    st.info("🔮 Forecast mode")
+        elif not is_active: st.warning("Off-season / Fallow")
         st.markdown("</div>", unsafe_allow_html=True)
 
     if not data_ok:
-        st.error(
-            f"⚠️ Could not load weather data for this location. "
-            f"Error: **{weather_error or 'empty response from API'}**\n\n"
-            "Check your internet connection and try again. "
-            "If the problem persists, try selecting a different location."
-        )
+        st.error(f"**Could not load weather data.**\n\nError: `{weather_error or 'empty API response'}`\n\nCheck your internet connection, or try a different location.")
         st.stop()
 
-    # ── RISK SCORE ──────────────────────────────────────────────────────────
-    # Slice weather history up to the selected assessment date
-    assessment_dt = pd.Timestamp(assessment_date)
-    if is_forecast_mode and df_forecast is not None and not df_forecast.empty:
-        df_for_score = pd.concat([df_weather, df_forecast], ignore_index=True)
-        df_for_score = df_for_score[df_for_score["date"] <= assessment_dt]
+    # Slice to assessment date
+    a_dt = pd.Timestamp(assessment_date)
+    if is_fc_mode and df_forecast is not None and not df_forecast.empty:
+        df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
     else:
-        df_for_score = df_weather[df_weather["date"] <= assessment_dt]
+        df_all = df_weather.copy()
+    df_slice = df_all[df_all["date"] <= a_dt]
 
-    assessment = compute_drought_score(df_for_score, oni_v, crop_stage, is_active)
-    score = assessment["score"]
-    level = assessment["alert_level"]
-    color = assessment["alert_color"]
-    emoji = assessment["alert_emoji"]
+    assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
+    score  = assessment["score"]
+    level  = assessment["alert_level"]
+    color  = assessment["alert_color"]
+    emoji  = assessment["alert_emoji"]
 
-    summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"], st.session_state.preset_name)
+    tail90 = df_slice.tail(90)
+    precip_90  = float(tail90["precip_mm"].sum())
+    et0_90     = float(tail90["et0_mm"].sum())
+    deficit_90 = max(0.0, et0_90 - precip_90)
+    temp_90    = float(tail90["temp_c"].mean())
 
-    st.markdown(
-        f"<div class='risk-block' style='background:linear-gradient(135deg,{color}18,{color}08);border-color:{color}55'>"
-        f"<div style='display:flex;align-items:baseline;gap:16px'>"
-        f"<span class='risk-score' style='color:{color}'>{score:.0f}</span>"
-        f"<span style='color:{color};font-size:1.2rem'>/100</span>"
-        f"<span class='risk-label' style='color:{color}'>{emoji} {level} Drought Risk</span>"
-        f"</div>"
-        f"<div class='risk-summary'>{summary_text}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    # Water satisfaction (how much of crop need was met by rain)
+    if is_active:
+        needed = cal["daily_demand_mm"] * len(tail90)
+        satisfaction_pct = min(150.0, (precip_90 / (needed + 1e-6)) * 100)
+    else:
+        needed = 0; satisfaction_pct = None
 
-    # ── 4 METRIC CARDS ──────────────────────────────────────────────────────
+    # ── RISK GAUGE + SUMMARY ─────────────────────────────────────────────
+    col_gauge, col_summary = st.columns([1, 3])
+    with col_gauge:
+        st.markdown("<div class='card' style='text-align:center'>", unsafe_allow_html=True)
+        st.pyplot(_gauge(score, color), use_container_width=True)
+        st.markdown(f"<div style='text-align:center;color:{color};font-weight:700;font-size:1.1rem'>{emoji} {level}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_summary:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+                                        st.session_state.preset_name)
+        st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
+                    unsafe_allow_html=True)
+
+        if satisfaction_pct is not None:
+            bar_color = "#ef4444" if satisfaction_pct < 50 else ("#f59e0b" if satisfaction_pct < 80 else "#22c55e")
+            bar_w = min(100, satisfaction_pct)
+            st.markdown(
+                f"<div style='margin-top:14px'>"
+                f"<div class='kpi-label'>Crop Water Needs Met (last 90 days)</div>"
+                f"<div class='sat-bar-wrap'><div class='sat-bar-fill' style='width:{bar_w:.0f}%;background:{bar_color}'></div></div>"
+                f"<div style='font-size:.85rem;color:#a0aec0'>"
+                f"Rain received: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
+                f"Crop needed: <b style='color:#fff'>{needed:.0f} mm</b> · "
+                f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}% met</b></div>"
+                f"</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── CROP CALENDAR STRIP ──────────────────────────────────────────────
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("📅 Crop Growth Calendar")
+    st.caption("Green = growing · Red = critical water stage · Orange = harvesting · Dark = fallow. Border = current month.")
+    st.pyplot(_crop_calendar_strip(cal, a_month), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── 4 METRIC CARDS ──────────────────────────────────────────────────
+    opt_t_lo, opt_t_hi = cal["optimal_temp"]
+    st.markdown("### Key Indicators (last 90 days — real ERA5 data)")
     m1, m2, m3, m4 = st.columns(4)
 
-    tail90 = df_for_score.tail(90)
-    precip_90 = tail90["precip_mm"].sum()
-    temp_90   = tail90["temp_c"].mean()
-    et0_90    = tail90["et0_mm"].sum()
-    deficit   = max(0, et0_90 - precip_90)
+    def _kpi(col, label, val, sub, ok):
+        dot = "🟢" if ok else "🔴"
+        col.markdown(f"<div class='card'><div class='kpi-label'>{label}</div>"
+                     f"<div class='kpi-value'>{val}</div>"
+                     f"<div class='kpi-sub'>{dot} {sub}</div></div>", unsafe_allow_html=True)
 
-    opt_t_lo, opt_t_hi = cal["optimal_temp"]
-    opt_p_lo, opt_p_hi = cal["optimal_precip_mm_day"]
-    precip_daily_avg = precip_90 / 90
+    _kpi(m1,"Rainfall (90d)", f"{precip_90:.0f} mm",
+         f"Need: {cal['daily_demand_mm']*90:.0f} mm for full season",
+         precip_90 >= cal["daily_demand_mm"] * 90 * 0.7)
+    _kpi(m2,"Water Deficit (90d)", f"{deficit_90:.0f} mm",
+         f"Evaporation demand: {et0_90:.0f} mm",
+         deficit_90 < 100)
+    _kpi(m3,"Mean Temperature", f"{temp_90:.1f} °C",
+         f"Optimal: {opt_t_lo}–{opt_t_hi}°C",
+         opt_t_lo <= temp_90 <= opt_t_hi + 2)
+    _kpi(m4,"SPI-3 Index", f"{assessment['spi3']:+.2f}",
+         "< –1.0 = drought · < –2.0 = severe",
+         assessment["spi3"] >= -1.0)
 
-    with m1:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        status_rain = "🔴 Below target" if precip_daily_avg < opt_p_lo else ("🟡 Low" if precip_daily_avg < opt_p_hi * 0.75 else "🟢 Adequate")
-        st.markdown(
-            f"<div class='data-label'>Rainfall (last 90 days)</div>"
-            f"<div class='data-value'>{precip_90:.0f} mm</div>"
-            f"<div class='data-sub'>{precip_daily_avg:.1f} mm/day · Target: {opt_p_lo}–{opt_p_hi} mm/day<br>{status_rain}</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with m2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        status_def = "🔴 Severe" if deficit > 200 else ("🟡 Moderate" if deficit > 80 else "🟢 Low")
-        st.markdown(
-            f"<div class='data-label'>Water Deficit (90 days)</div>"
-            f"<div class='data-value'>{deficit:.0f} mm</div>"
-            f"<div class='data-sub'>Evaporation demand: {et0_90:.0f} mm<br>{status_def}</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with m3:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        status_temp = "🔴 Heat stress" if temp_90 > opt_t_hi else ("🟡 Warm" if temp_90 > opt_t_hi - 2 else "🟢 Optimal")
-        st.markdown(
-            f"<div class='data-label'>Mean Temperature (90 days)</div>"
-            f"<div class='data-value'>{temp_90:.1f} °C</div>"
-            f"<div class='data-sub'>Optimal range: {opt_t_lo}–{opt_t_hi}°C<br>{status_temp}</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with m4:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        spi_label = "Severe drought" if assessment["spi3"] < -2 else (
-            "Moderate drought" if assessment["spi3"] < -1 else (
-            "Dry" if assessment["spi3"] < -0.5 else "Normal"))
-        st.markdown(
-            f"<div class='data-label'>SPI-3 (Precip Index)</div>"
-            f"<div class='data-value'>{assessment['spi3']:+.2f}</div>"
-            f"<div class='data-sub'>{spi_label}<br>Below –1.0 = drought onset</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── RECOMMENDATIONS ──────────────────────────────────────────────────────
-    st.markdown("### What should you do?")
-    recs = generate_recommendations(assessment, crop_choice, crop_stage, oni_v)
-    for rec in recs:
+    # ── RECOMMENDATIONS ──────────────────────────────────────────────────
+    st.markdown("### What to do")
+    for rec in generate_recommendations(assessment, crop_choice, crop_stage, oni_v):
         st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
 
-    # ── AI ANALYSIS (optional) ───────────────────────────────────────────────
-    with st.expander("🤖 AI-Enhanced Analysis (optional — requires your own API key)"):
-        st.caption(
-            "The AI uses the real data above to write a richer personalised assessment. "
-            "Enter your Anthropic or OpenAI API key in the sidebar to enable this."
-        )
+    # ── AI ANALYSIS ──────────────────────────────────────────────────────
+    with st.expander("🤖 AI-Enhanced Analysis (optional)"):
+        st.caption("Paste your Anthropic or OpenAI key in the sidebar to unlock.")
         if st.button("Generate AI Analysis", disabled=not bool(ai_key)):
-            if ai_key:
-                provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
-                with st.spinner("Asking AI…"):
-                    ai_text = call_llm_narrative(
-                        assessment, crop_choice, crop_stage, oni,
-                        st.session_state.preset_name, ai_key, provider,
-                    )
-                st.markdown(ai_text)
-            else:
-                st.info("Enter your API key in the sidebar first.")
+            provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
+            with st.spinner("Asking AI…"):
+                txt = call_llm_narrative(assessment, crop_choice, crop_stage, oni,
+                                         st.session_state.preset_name, ai_key, provider)
+            st.markdown(txt)
 
-    # ── LOG TO DB ────────────────────────────────────────────────────────────
-    with st.expander("💾 Log this assessment to local database"):
-        if st.button("Save assessment"):
+    # ── SAVE ────────────────────────────────────────────────────────────
+    with st.expander("💾 Save this assessment"):
+        if st.button("Save to local database"):
             try:
                 init_db()
                 conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT OR IGNORE INTO regional_targets "
-                    "(region_name, country, crop_type, bbox_coords, is_scheduled) "
-                    "VALUES (?,?,?,?,?)",
-                    (st.session_state.preset_name, active_region, crop_choice,
-                     f"{lon},{lat}", 0),
-                )
-                cursor.execute(
-                    "INSERT INTO self_correction_journal "
-                    "(journal_date, assessment_period, target_district, "
-                    "raw_pdsi_forecast, observed_pdsi, forecast_rmse, "
-                    "agent_reasoning, parameter_adjustments) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (
-                        datetime.now().strftime("%Y-%m-%d"),
-                        "Manual save",
-                        st.session_state.preset_name,
-                        assessment["spi3"],
-                        -deficit / 100.0,
-                        abs(score - 50),
-                        summary_text,
-                        f'{{"score":{score},"level":"{level}","oni":{oni_v}}}',
-                    ),
-                )
-                conn.commit()
-                conn.close()
+                c = conn.cursor()
+                c.execute("INSERT OR IGNORE INTO regional_targets "
+                          "(region_name,country,crop_type,bbox_coords,is_scheduled) VALUES(?,?,?,?,?)",
+                          (st.session_state.preset_name, active_region, crop_choice, f"{lon},{lat}", 0))
+                c.execute("INSERT INTO self_correction_journal "
+                          "(journal_date,assessment_period,target_district,raw_pdsi_forecast,"
+                          "observed_pdsi,forecast_rmse,agent_reasoning,parameter_adjustments)"
+                          " VALUES(?,?,?,?,?,?,?,?)",
+                          (datetime.now().strftime("%Y-%m-%d"), "Manual",
+                           st.session_state.preset_name, assessment["spi3"],
+                           -deficit_90/100, abs(score-50),
+                           generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+                                            st.session_state.preset_name),
+                           f'{{"score":{score},"level":"{level}","oni":{oni_v}}}'))
+                conn.commit(); conn.close()
                 st.success("Saved!")
             except Exception as e:
-                st.error(f"Could not save: {e}")
+                st.error(f"Save failed: {e}")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 2: 90-DAY TRENDS
-# ═════════════════════════════════════════════════════════════════════════════
-with tab_trends:
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 2: 90-DAY HISTORY
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_history:
     if not data_ok:
-        st.warning(f"Weather data unavailable. {weather_error or ''}")
-        st.stop()  # noqa: safe inside tab
-
-    df_plot = df_weather.tail(90).copy()
-
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Rainfall — last 90 days")
-    st.caption("Daily precipitation (bars) and 7-day rolling average (line).")
-    fig, ax = plt.subplots(figsize=(10, 3.2), facecolor="none")
-    ax.set_facecolor("none")
-    ax.bar(df_plot["date"], df_plot["precip_mm"], color="#3b82f6", alpha=0.6, width=0.9, label="Daily rain (mm)")
-    roll7 = df_plot["precip_mm"].rolling(7, min_periods=1).mean()
-    ax.plot(df_plot["date"], roll7, color="#60a5fa", linewidth=2, label="7-day avg")
-    daily_target = cal["optimal_precip_mm_day"][0]
-    ax.axhline(daily_target, color="#38ef7d", linestyle="--", linewidth=1.2, alpha=0.7, label=f"Min crop need ({daily_target} mm/day)")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-    plt.xticks(rotation=30, color="white", fontsize=8)
-    ax.tick_params(colors="white")
-    ax.spines[:].set_visible(False)
-    ax.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
-    ax.set_ylabel("mm", color="white", fontsize=9)
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Cumulative Water Balance")
-        st.caption("Cumulative (rainfall − evaporation). Orange zone = water deficit.")
-        fig2, ax2 = plt.subplots(figsize=(6, 3.2), facecolor="none")
-        ax2.set_facecolor("none")
-        cum_wb = df_plot["water_balance_mm"].cumsum()
-        ax2.plot(df_plot["date"], cum_wb, color="#f97316", linewidth=2)
-        ax2.fill_between(df_plot["date"], cum_wb, 0,
-                         where=(cum_wb < 0), color="#f97316", alpha=0.18, label="Deficit")
-        ax2.fill_between(df_plot["date"], cum_wb, 0,
-                         where=(cum_wb >= 0), color="#38ef7d", alpha=0.18, label="Surplus")
-        ax2.axhline(0, color="white", linewidth=0.7, alpha=0.4)
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-        ax2.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
-        plt.xticks(rotation=30, color="white", fontsize=8)
-        ax2.tick_params(colors="white")
-        ax2.spines[:].set_visible(False)
-        ax2.set_ylabel("mm cumulative", color="white", fontsize=9)
-        ax2.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
-        st.pyplot(fig2, use_container_width=True)
-        plt.close(fig2)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col_b:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Temperature Trend")
-        st.caption(f"Mean daily temperature with optimal range for {crop_choice}.")
-        fig3, ax3 = plt.subplots(figsize=(6, 3.2), facecolor="none")
-        ax3.set_facecolor("none")
-        ax3.plot(df_plot["date"], df_plot["temp_c"], color="#ef4444", linewidth=1.8)
-        t_lo, t_hi = cal["optimal_temp"]
-        ax3.axhspan(t_lo, t_hi, alpha=0.12, color="#38ef7d", label=f"Optimal {t_lo}–{t_hi}°C")
-        ax3.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-        ax3.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
-        plt.xticks(rotation=30, color="white", fontsize=8)
-        ax3.tick_params(colors="white")
-        ax3.spines[:].set_visible(False)
-        ax3.set_ylabel("°C", color="white", fontsize=9)
-        ax3.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
-        st.pyplot(fig3, use_container_width=True)
-        plt.close(fig3)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # Monthly summary table
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Monthly Summary")
-    df_month = df_plot.copy()
-    df_month["month"] = df_month["date"].dt.to_period("M")
-    monthly = df_month.groupby("month").agg(
-        Rain_mm=("precip_mm", "sum"),
-        Evap_mm=("et0_mm", "sum"),
-        Deficit_mm=("water_balance_mm", lambda x: max(0, -x.sum())),
-        Avg_Temp_C=("temp_c", "mean"),
-    ).round(1)
-    monthly.index = monthly.index.astype(str)
-    st.dataframe(monthly, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 3: 14-DAY FORECAST
-# ═════════════════════════════════════════════════════════════════════════════
-with tab_forecast:
-    if df_forecast is None or df_forecast.empty:
-        st.warning("Forecast data unavailable. Check your internet connection.")
+        st.warning(f"No data. {weather_error or ''}")
     else:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("14-Day Rainfall Forecast")
-        st.caption("Open-Meteo weather model forecast. Updated daily.")
-        fig4, ax4 = plt.subplots(figsize=(10, 3.2), facecolor="none")
-        ax4.set_facecolor("none")
-        ax4.bar(df_forecast["date"], df_forecast["precip_mm"],
-                color="#818cf8", alpha=0.7, width=0.8, label="Forecast rain (mm)")
-        ax4.axhline(cal["optimal_precip_mm_day"][0], color="#38ef7d",
-                    linestyle="--", linewidth=1.2, alpha=0.7,
-                    label=f"Min crop need ({cal['optimal_precip_mm_day'][0]} mm/day)")
-        ax4.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-        plt.xticks(rotation=30, color="white", fontsize=8)
-        ax4.tick_params(colors="white")
-        ax4.spines[:].set_visible(False)
-        ax4.set_ylabel("mm", color="white", fontsize=9)
-        ax4.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
-        st.pyplot(fig4, use_container_width=True)
-        plt.close(fig4)
+        df90 = df_weather.tail(90)
 
-        total_fc = df_forecast["precip_mm"].sum()
-        et0_fc = df_forecast["et0_mm"].sum()
-        fc_deficit = max(0, et0_fc - total_fc)
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            st.metric("Total forecast rain (14d)", f"{total_fc:.0f} mm")
-        with col_f2:
-            st.metric("Expected evaporation (14d)", f"{et0_fc:.0f} mm")
-        with col_f3:
-            st.metric("Projected water deficit (14d)", f"{fc_deficit:.0f} mm",
-                      delta="additional stress" if fc_deficit > 20 else "manageable",
-                      delta_color="inverse" if fc_deficit > 20 else "normal")
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Monthly Rainfall vs Crop Water Requirement")
+        st.caption("Blue bars = actual rain. Orange bars = what your crop needed. Red bars = months with critical deficit (< 50% of need).")
+        st.pyplot(_monthly_bar_chart(df_weather.tail(180), cal["daily_demand_mm"], cal), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("14-Day Temperature Forecast")
-        fig5, ax5 = plt.subplots(figsize=(10, 2.8), facecolor="none")
-        ax5.set_facecolor("none")
-        ax5.plot(df_forecast["date"], df_forecast["temp_c"], color="#ef4444", linewidth=2)
-        t_lo, t_hi = cal["optimal_temp"]
-        ax5.axhspan(t_lo, t_hi, alpha=0.1, color="#38ef7d",
-                    label=f"Optimal range {t_lo}–{t_hi}°C")
-        ax5.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-        plt.xticks(rotation=30, color="white", fontsize=8)
-        ax5.tick_params(colors="white")
-        ax5.spines[:].set_visible(False)
-        ax5.set_ylabel("°C", color="white", fontsize=9)
-        ax5.legend(facecolor="#1a1a2e", edgecolor="#333", labelcolor="white", fontsize=8)
-        st.pyplot(fig5, use_container_width=True)
-        plt.close(fig5)
+        st.subheader("Cumulative Water Balance (Rain − Evaporation)")
+        st.caption("Orange shading = drought deficit zone where evaporation exceeded rainfall. Real ERA5 data.")
+        st.pyplot(_water_balance_chart(df_weather), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        col_t, col_r = st.columns(2)
+        with col_t:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            st.subheader("Temperature (last 90 days)")
+            fig_t, ax_t = plt.subplots(figsize=(6, 2.8), facecolor="none")
+            ax_t.set_facecolor("none")
+            ax_t.plot(df90["date"], df90["temp_c"], color="#f87171", linewidth=1.8)
+            t_lo, t_hi = cal["optimal_temp"]
+            ax_t.axhspan(t_lo, t_hi, alpha=0.12, color="#38ef7d",
+                         label=f"Optimal {t_lo}–{t_hi}°C")
+            ax_t.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+            ax_t.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+            plt.xticks(rotation=25, color="white", fontsize=7)
+            ax_t.tick_params(colors="white"); ax_t.spines[:].set_visible(False)
+            ax_t.set_ylabel("°C", color="white", fontsize=9)
+            ax_t.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+            st.pyplot(fig_t, use_container_width=True); plt.close(fig_t)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_r:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            st.subheader("Daily Rainfall (last 90 days)")
+            fig_r, ax_r = plt.subplots(figsize=(6, 2.8), facecolor="none")
+            ax_r.set_facecolor("none")
+            ax_r.bar(df90["date"], df90["precip_mm"], color="#60a5fa", alpha=0.75, width=0.9)
+            ax_r.axhline(cal["daily_demand_mm"], color="#38ef7d", linestyle="--",
+                         linewidth=1.3, label=f"Daily need ({cal['daily_demand_mm']} mm)")
+            ax_r.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+            ax_r.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+            plt.xticks(rotation=25, color="white", fontsize=7)
+            ax_r.tick_params(colors="white"); ax_r.spines[:].set_visible(False)
+            ax_r.set_ylabel("mm", color="white", fontsize=9)
+            ax_r.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+            st.pyplot(fig_r, use_container_width=True); plt.close(fig_r)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 3: 14-DAY FORECAST
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_fc:
+    if df_forecast is None or df_forecast.empty:
+        st.warning("Forecast data unavailable. Check internet connection.")
+    else:
+        fc_precip = float(df_forecast["precip_mm"].sum())
+        fc_et0    = float(df_forecast["et0_mm"].sum())
+        fc_deficit = max(0.0, fc_et0 - fc_precip)
+        fc_needed  = cal["daily_demand_mm"] * len(df_forecast)
+        fc_pct     = min(150, (fc_precip / (fc_needed + 1e-6)) * 100)
+
+        c1, c2, c3 = st.columns(3)
+        bar_col = "#ef4444" if fc_pct < 50 else ("#f59e0b" if fc_pct < 80 else "#22c55e")
+        c1.metric("Forecast rain (14d)",      f"{fc_precip:.0f} mm")
+        c2.metric("Crop water need (14d)",    f"{fc_needed:.0f} mm",
+                  delta=f"{fc_pct:.0f}% of need covered",
+                  delta_color="normal" if fc_pct >= 80 else "inverse")
+        c3.metric("Projected water deficit",  f"{fc_deficit:.0f} mm",
+                  delta="critical" if fc_deficit > 80 else "low",
+                  delta_color="inverse" if fc_deficit > 80 else "normal")
+
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Day-by-Day Forecast")
+        st.caption("Blue = day meets or exceeds your crop's daily water need. Red = deficit day.")
+        st.pyplot(_forecast_chart(df_forecast, cal["daily_demand_mm"], crop_choice),
+                  use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Cumulative forecast trajectory
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Cumulative Forecast Water Balance")
+        cum_fc = (df_forecast["water_balance_mm"]).cumsum()
+        fig_fc, ax_fc = plt.subplots(figsize=(10, 2.6), facecolor="none")
+        ax_fc.set_facecolor("none")
+        ax_fc.plot(df_forecast["date"], cum_fc, color="#a78bfa", linewidth=2)
+        ax_fc.fill_between(df_forecast["date"], cum_fc, 0,
+                           where=(cum_fc < 0), color="#ef4444", alpha=0.2, label="Deficit")
+        ax_fc.fill_between(df_forecast["date"], cum_fc, 0,
+                           where=(cum_fc >= 0), color="#38ef7d", alpha=0.15, label="Surplus")
+        ax_fc.axhline(0, color="white", linewidth=0.6, alpha=0.35)
+        ax_fc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+        plt.xticks(rotation=25, color="white", fontsize=8)
+        ax_fc.tick_params(colors="white"); ax_fc.spines[:].set_visible(False)
+        ax_fc.set_ylabel("mm cumulative", color="white", fontsize=9)
+        ax_fc.legend(facecolor="#0d1117", edgecolor="#333", labelcolor="white", fontsize=8)
+        st.pyplot(fig_fc, use_container_width=True); plt.close(fig_fc)
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 4: ABOUT & METHODS
-# ═════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 4: METHODOLOGY
+# ═══════════════════════════════════════════════════════════════════════════
 with tab_about:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("How ENSA Works")
+    st.subheader("Data Sources — All Real, All Free")
     st.markdown("""
-ENSA calculates a **0–100 drought risk score** from three real data sources, all free:
+| Source | Variable | Update |
+|--------|----------|--------|
+| **Open-Meteo ERA5 archive** | Daily rainfall (mm), mean temperature (°C), FAO-56 reference evapotranspiration ET₀ (mm) | Daily, 5-day lag |
+| **Open-Meteo Forecast** | 14-day precipitation, temperature, ET₀ | Daily |
+| **NOAA CPC NINO3.4** | Monthly SST anomaly (El Niño / La Niña intensity) | Monthly |
 
-| Source | What it provides | Cost |
-|--------|-----------------|------|
-| **Open-Meteo ERA5 archive** | Daily rainfall, temperature, reference evapotranspiration (FAO-56) for any point on Earth back to 1940 | Free · No key |
-| **Open-Meteo forecast** | 14-day weather model forecast | Free · No key |
-| **NOAA CPC NINO3.4** | Monthly El Niño / La Niña SST anomaly (ONI) | Free · No key |
-
-### Scoring Logic
-The risk score combines four components:
-
-1. **SPI-3** (McKee et al. 1993) — Standardised Precipitation Index over 90 days. Fits the historical precipitation series to a Gamma distribution; values below –1.0 indicate drought, below –2.0 indicate severe drought. *Weight: up to 40 pts.*
-
-2. **Cumulative water deficit** (P − ET₀) — Total rainfall minus reference evapotranspiration over 90 days using the FAO-56 Penman-Monteith method. A large negative balance means crops cannot replace the water they lose. *Weight: up to 40 pts.*
-
-3. **Temperature stress** — Mean temperature above 25°C drives additional evaporation. *Weight: up to 20 pts.*
-
-4. **ENSO amplification** — If NINO3.4 ≥ +0.5°C (El Niño), the score is multiplied up to 1.5× because southern Africa rainfall is systematically suppressed during El Niño events (Ropelewski & Halpert 1987).
-
-5. **Crop stage weighting** — Flowering, tasseling, and grain-filling stages amplify the score ×1.35 because water stress during pollination causes irreversible yield loss.
-
-### References
-- McKee et al. (1993) — SPI definition
-- Vicente-Serrano et al. (2010) — SPEI / Penman-Monteith PET
-- Palmer (1965) — PDSI drought severity framework
-- Kogan (1995) — Vegetation Condition Index
-- Ropelewski & Halpert (1987) — ENSO–Southern Africa rainfall teleconnections
+All three sources are free and require no registration or API key.
+No simulated or fallback values are shown — if a data source is offline the dashboard shows an error.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Saved journal
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("Risk Score Methodology")
+    st.markdown(r"""
+The 0–100 drought risk score combines four components:
+
+**1. SPI-3 — Standardised Precipitation Index (McKee et al. 1993)**
+Fits the full historical daily precipitation series to a two-parameter Gamma distribution,
+then converts to standard normal probabilities. SPI-3 < –1.0 = drought onset; < –2.0 = severe drought.
+*Contributes up to 40 points.*
+
+**2. Cumulative Water Deficit P − ET₀ (FAO-56)**
+Total rainfall minus reference evapotranspiration over the last 90 days.
+ET₀ is computed by Open-Meteo using the Penman-Monteith equation from ERA5 radiation,
+wind, humidity, and temperature — no approximations.
+*Contributes up to 40 points.*
+
+**3. Temperature stress**
+Mean temperature above 25 °C accelerates soil drying and increases crop transpiration demand.
+*Contributes up to 20 points.*
+
+**4. ENSO amplification (Ropelewski & Halpert 1987)**
+If NINO3.4 ≥ +0.5 °C (El Niño developing), the score is multiplied up to ×1.5,
+reflecting the teleconnection between Pacific SST anomalies and suppressed monsoon rainfall
+over Southern Africa, South Asia, and Australia.
+
+**5. Crop stage weighting**
+Flowering, tasseling, panicle initiation, and grain-filling stages are amplified ×1.35,
+because water stress during pollination causes irreversible yield loss.
+
+**6. Off-season dampener**
+During fallow/dormant months the score is reduced ×0.25 — dry conditions are expected
+and do not represent crop stress.
+""")
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("📓 Saved Assessments")
     try:
         init_db()
         conn = get_db_connection()
         df_j = pd.read_sql_query(
-            "SELECT journal_date, target_district, agent_reasoning, parameter_adjustments "
-            "FROM self_correction_journal ORDER BY id DESC LIMIT 20",
-            conn,
-        )
+            "SELECT journal_date, target_district, agent_reasoning "
+            "FROM self_correction_journal ORDER BY id DESC LIMIT 20", conn)
         conn.close()
         if df_j.empty:
-            st.info("No saved assessments yet. Use the 'Save assessment' button in Farm Status.")
+            st.info("No saved assessments yet. Use the 'Save' button in Farm Status.")
         else:
             for _, row in df_j.iterrows():
                 st.markdown(f"**{row['journal_date']} — {row['target_district']}**")
