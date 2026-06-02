@@ -5,6 +5,14 @@ from datetime import datetime, timedelta
 from ensa.core.interfaces import BaseEOProcessor
 from ensa.config import SOUTHERN_PROVINCE_BBOX
 
+def point_to_bbox(point, offset=0.015):
+    """
+    Converts a point (latitude, longitude) to a tiny bounding box
+    [min_lon, min_lat, max_lon, max_lat] for spatial searches.
+    """
+    lat, lon = point
+    return [lon - offset, lat - offset, lon + offset, lat + offset]
+
 class Sentinel2Processor(BaseEOProcessor):
     """
     Earth Observation Processor for Sentinel-2.
@@ -15,10 +23,16 @@ class Sentinel2Processor(BaseEOProcessor):
         self.stac_url = "https://planetarycomputer.microsoft.com/api/stac/v1"
         self.use_pc = use_pc
 
-    def query_stac_metadata(self, bbox, start_date, end_date) -> list:
+    def query_stac_metadata(self, point_or_bbox, start_date, end_date) -> list:
         """
         Queries Microsoft Planetary Computer STAC for Sentinel-2 L2A scenes.
+        Converts point coordinates to a bounding box if needed.
         """
+        if len(point_or_bbox) == 2:
+            bbox = point_to_bbox(point_or_bbox)
+        else:
+            bbox = point_or_bbox
+            
         print(f"[STAC S2] Searching Sentinel-2 metadata over bbox: {bbox}")
         try:
             import pystac_client
@@ -125,15 +139,18 @@ class Sentinel2Processor(BaseEOProcessor):
         })
         return df
 
-    def fetch_spatial_grids(self, items, bbox, grid_size=(30, 30)) -> dict:
+    def fetch_spatial_grids(self, items, bbox, grid_size=(30, 30), seed=None) -> dict:
         """
-        Extracts 2D high-resolution spatial crop index maps (NDVI, NDWI, VCI)
+        Extracts 2D high-resolution spatial crop index maps (NDVI, Soil Moisture, VCI)
         directly from Sentinel-2 bands, signed through Planetary Computer.
         Falls back to coordinates-responsive procedural grids if STAC is offline.
         """
+        if len(bbox) == 2:
+            bbox = point_to_bbox(bbox)
+            
         if not items:
             print("[STAC S2] No STAC items. Generating procedural 2D value maps.")
-            return self._generate_procedural_grids(bbox, grid_size)
+            return self._generate_procedural_grids(bbox, grid_size, seed=seed)
             
         try:
             import planetary_computer
@@ -173,12 +190,16 @@ class Sentinel2Processor(BaseEOProcessor):
             ndvi_2d = np.clip(ndvi_2d, -1.0, 1.0)
             ndwi_2d = np.clip(ndwi_2d, -1.0, 1.0)
             
+            # Surface Soil Moisture Index (SMI) proxy calculation
+            soil_moisture_2d = 0.5 * (1.0 + ndwi_2d) - 0.2 * np.maximum(0.0, ndvi_2d)
+            soil_moisture_2d = np.clip(soil_moisture_2d, 0.0, 1.0)
+            
             # VCI normalized relative to local grid variation for visualization
             vci_2d = ((ndvi_2d - ndvi_2d.min()) / (ndvi_2d.max() - ndvi_2d.min() + 1e-8)) * 100.0
             
             return {
                 "ndvi": ndvi_2d.tolist(),
-                "ndwi": ndwi_2d.tolist(),
+                "soil_moisture": soil_moisture_2d.tolist(),
                 "vci": vci_2d.tolist(),
                 "thumbnail_url": thumbnail_url,
                 "scene_id": latest_item.id,
@@ -189,16 +210,20 @@ class Sentinel2Processor(BaseEOProcessor):
             
         except Exception as e:
             print(f"[STAC S2 2D Warning] Real pixel grid fetch failed: {e}. Falling back to procedural grids.")
-            return self._generate_procedural_grids(bbox, grid_size)
+            return self._generate_procedural_grids(bbox, grid_size, seed=seed)
 
-    def _generate_procedural_grids(self, bbox, grid_size=(30, 30)) -> dict:
+    def _generate_procedural_grids(self, bbox, grid_size=(30, 30), seed=None) -> dict:
         """
         Generates coordinates-responsive, scientifically realistic 2D crop index grids
-        (NDVI, NDWI, VCI) representing smallholder farming plots and water bodies.
+        (NDVI, Soil Moisture, VCI) representing smallholder farming plots.
         Uses bounding-box hash seeds to ensure spatial persistence.
         """
+        if len(bbox) == 2:
+            bbox = point_to_bbox(bbox)
+            
         # Formulate persistent seed from coordinates to make simulation stable per bbox
-        seed = int((abs(bbox[0]) + abs(bbox[1]) + abs(bbox[2]) + abs(bbox[3])) * 1000) % 10000
+        if seed is None:
+            seed = int((abs(bbox[0]) + abs(bbox[1]) + abs(bbox[2]) + abs(bbox[3])) * 1000) % 10000
         np.random.seed(seed)
         
         nx, ny = grid_size
@@ -206,31 +231,31 @@ class Sentinel2Processor(BaseEOProcessor):
         y = np.linspace(-2, 2, ny)
         xv, yv = np.meshgrid(x, y)
         
+        # Shift the checkerboard crop fields pattern based on the seed
+        shift_x = (seed % 7) * 0.45
+        shift_y = ((seed // 7) % 7) * 0.45
+        
         # 1. Simulate crop fields using rectangular checkerboard patterns
-        fields = np.sin(xv * 3.5) * np.cos(yv * 3.5)
+        fields = np.sin((xv + shift_x) * 3.5) * np.cos((yv + shift_y) * 3.5)
         ndvi_2d = 0.45 + 0.25 * fields + np.random.normal(0, 0.05, grid_size)
-        
-        # 2. Simulate a local reservoir in the top-right corner
-        # Reservoir presence: high NDWI, low/negative NDVI
-        dist_to_corner = np.sqrt((xv - 1.2)**2 + (yv - 1.2)**2)
-        reservoir_mask = dist_to_corner < 0.6
-        
-        ndvi_2d[reservoir_mask] = -0.15 + np.random.normal(0, 0.02, np.sum(reservoir_mask))
         ndvi_2d = np.clip(ndvi_2d, -0.2, 0.85)
         
-        # 3. Simulate NDWI (Normalized Difference Water Index)
-        ndwi_2d = -0.3 + 0.15 * np.cos(xv * 2.0) + np.random.normal(0, 0.04, grid_size)
-        ndwi_2d[reservoir_mask] = 0.42 + np.random.normal(0, 0.03, np.sum(reservoir_mask))
-        ndwi_2d = np.clip(ndwi_2d, -0.6, 0.6)
+        # 2. Simulate soil moisture (SMI) centered on a seed-dependent wetness valley/stream
+        wet_x = 0.8 * np.sin(seed * 0.45)
+        wet_y = 0.8 * np.cos(seed * 0.73)
+        dist_to_wet = np.sqrt((xv - wet_x)**2 + (yv - wet_y)**2)
         
-        # 4. Simulate VCI (Vegetation Condition Index)
-        # Moderate drought stress pattern based on coordinate drying gradient
+        # SMI is higher in the wet valley, and inversely proportional to crop density in dry parts
+        soil_moisture_2d = 0.35 + 0.3 * np.exp(-dist_to_wet**2 / 0.8) - 0.1 * ndvi_2d + np.random.normal(0, 0.03, grid_size)
+        soil_moisture_2d = np.clip(soil_moisture_2d, 0.0, 1.0)
+        
+        # 3. Simulate VCI (Vegetation Condition Index)
         stress_gradient = 100 - (ndvi_2d * 100.0)
         vci_2d = np.clip(100.0 - stress_gradient * 0.9 + np.random.normal(0, 2, grid_size), 0.0, 100.0)
         
         return {
             "ndvi": ndvi_2d.tolist(),
-            "ndwi": ndwi_2d.tolist(),
+            "soil_moisture": soil_moisture_2d.tolist(),
             "vci": vci_2d.tolist(),
             "thumbnail_url": None,
             "scene_id": f"PROCEDURAL-S2-ZAM-{seed}",

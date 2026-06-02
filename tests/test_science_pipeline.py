@@ -64,5 +64,17 @@ class TestENSASciencePipeline(unittest.TestCase):
         self.assertEqual(w_poor["fusion_type"], "Ensemble Average Fallback")
         self.assertEqual(w_poor["precipitation"], 0.33)
 
+    def test_point_to_bbox(self):
+        """Verifies that point coordinates are converted to correct tiny bounding boxes."""
+        from ensa.eo.stac_s2 import point_to_bbox
+        point = (-16.25, 27.65)
+        bbox = point_to_bbox(point, offset=0.015)
+        
+        # Expected: [27.65 - 0.015, -16.25 - 0.015, 27.65 + 0.015, -16.25 + 0.015]
+        self.assertAlmostEqual(bbox[0], 27.635, places=4)
+        self.assertAlmostEqual(bbox[1], -16.265, places=4)
+        self.assertAlmostEqual(bbox[2], 27.665, places=4)
+        self.assertAlmostEqual(bbox[3], -16.235, places=4)
+
 if __name__ == "__main__":
     unittest.main()
