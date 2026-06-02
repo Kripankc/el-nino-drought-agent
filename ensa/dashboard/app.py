@@ -1,9 +1,9 @@
-﻿"""
-ENSA â€” El NiÃ±o Sentinel Agent  v2.1
+"""
+ENSA — El Niño Sentinel Agent  v2.1
 Farmer-facing drought early-warning dashboard.
 Weather: Open-Meteo ERA5 (real, free, no key).
 ENSO:    NOAA CPC NINO3.4 (real, free, no key).
-LLM:     optional â€” user supplies their own Anthropic/OpenAI key.
+LLM:     optional — user supplies their own Anthropic/OpenAI key.
 """
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -29,77 +29,41 @@ from ensa.agent.brain import (
 )
 from ensa.db.connection import get_db_connection, init_db
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ENSA â€” Drought Early Warning",
-    page_icon="ðŸ›°ï¸",
+    page_title="ENSA — Drought Early Warning",
+    page_icon="🌾",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
-*{font-family:'DM Sans',system-ui,-apple-system,sans-serif!important;}
-
-/* â”€â”€ App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.stApp{background:#0D1117!important;color:#E6EDF3!important;}
-#MainMenu,footer,.stDeployButton{display:none!important;}
-
-/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-[data-testid="stSidebar"]{background:#0D1117!important;border-right:1px solid #21262D!important;}
-[data-testid="stSidebar"] .stMarkdown,[data-testid="stSidebar"] label{color:#8B949E!important;font-size:.83rem!important;}
-[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3{color:#E6EDF3!important;font-weight:600!important;}
-
-/* â”€â”€ Typography â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-h1,h2,h3,h4{color:#E6EDF3!important;font-weight:600!important;letter-spacing:-.015em!important;}
-p,.stMarkdown p{color:#8B949E!important;}
-
-/* â”€â”€ Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.card{background:#161C22;border:1px solid #2D3741;border-radius:10px;padding:18px 22px;margin-bottom:12px;}
-
-/* â”€â”€ Section label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.sec{font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#8B949E;margin-bottom:10px;}
-
-/* â”€â”€ KPI tile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.kpi{background:#161C22;border:1px solid #2D3741;border-radius:10px;padding:14px 16px;}
-.kpi-lbl{font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:#8B949E;margin-bottom:5px;}
-.kpi-val{font-size:1.65rem;font-weight:600;color:#E6EDF3;line-height:1.1;letter-spacing:-.02em;}
-.kpi-sub{font-size:.74rem;color:#484F58;margin-top:4px;}
-.kpi-ok {border-top:2px solid #3FB950!important;}
-.kpi-warn{border-top:2px solid #E3B341!important;}
-.kpi-bad{border-top:2px solid #F0883E!important;}
-
-/* â”€â”€ Insight box â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.insight{background:#161C22;border:1px solid #2D3741;border-radius:10px;padding:16px 18px;font-size:.88rem;line-height:1.7;color:#8B949E;}
-.insight b{color:#E6EDF3!important;}
-
-/* â”€â”€ Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.stTabs [data-baseweb="tab-list"]{background:#161C22;border-radius:8px;padding:3px;gap:2px;border:1px solid #2D3741;}
-.stTabs [data-baseweb="tab"]{border-radius:6px!important;color:#8B949E!important;font-weight:500!important;font-size:.86rem!important;padding:7px 18px!important;background:transparent!important;border:none!important;}
-.stTabs [aria-selected="true"]{background:#21262D!important;color:#E6EDF3!important;border-bottom:none!important;}
-
-/* â”€â”€ Inputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.stSelectbox>div>div,[data-baseweb="select"]>div,.stNumberInput input,.stDateInput input{background:#21262D!important;border:1px solid #2D3741!important;border-radius:8px!important;color:#E6EDF3!important;}
-.stButton button{background:#21262D!important;border:1px solid #2D3741!important;color:#8B949E!important;border-radius:7px!important;font-size:.82rem!important;font-weight:500!important;}
-.stButton button:hover{background:#2D3741!important;color:#E6EDF3!important;}
-.stAlert{border-radius:8px!important;}
-.stCaption{color:#484F58!important;font-size:.76rem!important;}
-
-/* â”€â”€ Scrollbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-::-webkit-scrollbar{width:4px;height:4px;}
-::-webkit-scrollbar-track{background:#0D1117;}
-::-webkit-scrollbar-thumb{background:#2D3741;border-radius:3px;}
-::-webkit-scrollbar-thumb:hover{background:#3D4F5C;}
+  .stApp{background:linear-gradient(135deg,#060913 0%,#020307 100%);color:#e2e8f0;}
+  h1,h2,h3,h4{color:#fff;font-weight:700;letter-spacing:-.025em;}
+  .card{background:rgba(255,255,255,.03);border-radius:16px;padding:20px 24px;
+    border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 32px rgba(0,0,0,.45);margin-bottom:18px;}
+  .rec-item{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.06);margin-bottom:8px;font-size:.97rem;line-height:1.55;}
+  .stTabs [data-baseweb="tab-list"]{gap:20px;background:transparent;}
+  .stTabs [data-baseweb="tab"]{background:transparent;color:#a0aec0;font-weight:600;}
+  .stTabs [aria-selected="true"]{color:#38ef7d !important;border-bottom-color:#38ef7d !important;}
+  .kpi-label{font-size:.72rem;color:#a0aec0;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;}
+  .kpi-value{font-size:1.55rem;font-weight:700;color:#fff;}
+  .kpi-sub{font-size:.82rem;color:#a0aec0;margin-top:1px;}
+  .enso-chip{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.82rem;font-weight:700;}
+  .sat-bar-wrap{background:#1a1a2e;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 2px;}
+  .sat-bar-fill{height:100%;border-radius:8px;transition:width .4s;}
+  .stage-pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:600;margin:2px 3px;}
 </style>
 """, unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# REGION DETECTION â€” priority-ordered, most specific first
+# ─────────────────────────────────────────────────────────────────────────────
+# REGION DETECTION — priority-ordered, most specific first
 # (lat_min, lat_max, lon_min, lon_max)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 _REGION_BOXES = [
     ("Nepal",           26.0, 30.5,  80.0,  88.5),
     ("Bangladesh",      20.5, 26.7,  88.0,  92.7),
@@ -131,11 +95,11 @@ def _is_active(cal, month):
     return (s <= month <= e) if s <= e else (month >= s or month <= e)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 # CROP CALENDARS  (literature-backed, no fallback values)
 # daily_demand_mm = average FAO crop water requirement during active season
-# optimal_temp    = (min, max) Â°C for healthy growth
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# optimal_temp    = (min, max) °C for healthy growth
+# ─────────────────────────────────────────────────────────────────────────────
 CROP_CALENDARS = {
     "Nepal": {
         "Kharif Rice": {
@@ -559,9 +523,9 @@ CROP_CALENDARS = {
     },
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 # PRESET LOCATIONS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 PRESETS = {
     "Mazabuka, Zambia":        {"coords": [-16.25,  27.65]},
     "Kathmandu Valley, Nepal": {"coords": [27.70,   85.30]},
@@ -571,279 +535,40 @@ PRESETS = {
     "Kano, Nigeria":           {"coords": [12.00,    8.52]},
     "Chiang Mai, Thailand":    {"coords": [18.79,   98.98]},
     "Lahore, Pakistan":        {"coords": [31.55,   74.34]},
-    "SÃ£o Paulo State, Brazil": {"coords": [-22.90,  -47.06]},
+    "São Paulo State, Brazil": {"coords": [-22.90,  -47.06]},
     "Custom Point":            {"coords": [-16.25,  27.65]},
 }
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# HELPERS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-# â”€â”€ Risk colour map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-RISK_COLORS = {
-    "Normal":  "#3FB950",
-    "Watch":   "#58A6FF",
-    "Warning": "#E3B341",
-    "Severe":  "#F0883E",
-    "Extreme": "#FF7B72",
-    "Unknown": "#8B949E",
-}
-RISK_BG = {
-    "Normal":  "#0D2010",
-    "Watch":   "#001A30",
-    "Warning": "#2A1E00",
-    "Severe":  "#2C1400",
-    "Extreme": "#3D0000",
-    "Unknown": "#161C22",
-}
-
-# â”€â”€ Chart style helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-def _ax(ax, xrot=30):
-    ax.set_facecolor("none")
-    ax.tick_params(colors="#484F58", labelsize=7.5)
-    ax.spines[:].set_visible(False)
-    ax.grid(axis="y", color="#21262D", linewidth=0.6)
-    plt.xticks(rotation=xrot, ha="right")
-    for lbl in ax.get_xticklabels() + ax.get_yticklabels():
-        lbl.set_color("#484F58")
-
-
-# â”€â”€ HTML helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def _mini_cal(cal, current_month):
-    """12-month compact strip with current month outlined."""
-    html = "<div style='display:flex;gap:2px;flex-wrap:wrap'>"
-    for m in range(1, 13):
-        stage = cal["stages"][m]
-        is_now = (m == current_month)
-        if "Critical" in stage or "Flowering" in stage or "Silking" in stage or "Tasseling" in stage:
-            bg, tc = "#2C1400", "#F0883E"
-        elif "Fallow" in stage or "Dormant" in stage or "Overwintering" in stage:
-            bg, tc = "#0D1117", "#3D444D"
-        elif "Harvest" in stage:
-            bg, tc = "#201800", "#E3B341"
-        else:
-            bg, tc = "#0D2010", "#3FB950"
-        if is_now:
-            bg = "#2D3741"
-        outline = f"outline:2px solid {tc};outline-offset:1px;" if is_now else ""
-        fw = "700" if is_now else "400"
-        html += (f"<div style='background:{bg};border-radius:3px;padding:3px 5px;"
-                 f"font-size:10px;color:{tc};font-weight:{fw};{outline}'>"
-                 f"{calendar.month_abbr[m]}</div>")
-    html += "</div>"
-    stage_now = cal["stages"][current_month]
-    if "Critical" in stage_now or "Flowering" in stage_now:
-        sc, si = "#F0883E", "ðŸ”´"
-    elif "Fallow" in stage_now or "Dormant" in stage_now:
-        sc, si = "#484F58", "â€”"
-    elif "Harvest" in stage_now:
-        sc, si = "#E3B341", "ðŸŸ¡"
-    else:
-        sc, si = "#3FB950", "ðŸŸ¢"
-    html += f"<div style='font-size:11px;color:{sc};margin-top:5px;font-weight:500'>{si} {stage_now}</div>"
-    return html
-
-
-def _ticker(assessment, crop, location):
-    level = assessment["alert_level"]
-    bg   = RISK_BG.get(level, "#161C22")
-    tc   = RISK_COLORS.get(level, "#8B949E")
-    msgs = {
-        "Extreme": f"Emergency drought conditions at {location}. Immediate crop loss risk â€” act now.",
-        "Severe":  f"Severe dry spell detected at {location}. High yield risk for {crop} if untreated.",
-        "Warning": f"Below-normal rainfall with rising evaporation stress for {crop} at {location}.",
-        "Watch":   f"Conditions slightly below normal for {crop} at {location}. Monitor weekly.",
-        "Normal":  f"Conditions are within the normal range for {crop} at {location}.",
-    }
-    labels = {"Extreme":"ðŸš¨ EMERGENCY","Severe":"ðŸš¨ ALERT","Warning":"âš ï¸ WARNING",
-              "Watch":"ðŸ‘ WATCH","Normal":"âœ… NORMAL"}
-    return (f"<div style='background:{bg};border:1px solid {tc}44;border-radius:8px;"
-            f"padding:9px 18px;margin:8px 0 14px;display:flex;align-items:center;gap:14px'>"
-            f"<span style='color:{tc};font-size:.78rem;font-weight:700;white-space:nowrap;"
-            f"letter-spacing:.04em'>{labels.get(level,'')}</span>"
-            f"<span style='color:#C9D1D9;font-size:.86rem'>{msgs.get(level,'')}</span>"
-            f"</div>")
-
-
-def _score_card(score, level, spi3):
-    tc = RISK_COLORS.get(level, "#8B949E")
-    spi_desc = ("Extreme drought" if spi3 < -2 else "Severe drought" if spi3 < -1.5
-                else "Moderate drought" if spi3 < -1 else "Dry conditions" if spi3 < -0.5
-                else "Normal range")
-    return (f"<div class='card'>"
-            f"<div class='sec'>Drought Stress Score</div>"
-            f"<div style='display:flex;align-items:baseline;gap:8px'>"
-            f"<span style='font-size:4.2rem;font-weight:700;color:{tc};"
-            f"line-height:1;letter-spacing:-.04em'>{score:.0f}</span>"
-            f"<span style='font-size:1.1rem;color:#3D444D'>/&thinsp;100</span></div>"
-            f"<div style='margin-top:10px'>"
-            f"<span style='background:{tc}18;color:{tc};border:1px solid {tc}44;"
-            f"border-radius:6px;padding:3px 10px;font-size:.8rem;font-weight:600'>"
-            f"{level.upper()} RISK</span></div>"
-            f"<div style='margin-top:12px;font-size:.8rem;color:#8B949E'>"
-            f"SPI-3 <span style='color:{tc};font-weight:600'>{spi3:+.2f}</span>"
-            f"&emsp;{spi_desc}</div></div>")
-
-
-def _deficit_card(sat_pct, received, needed, deficit):
-    if sat_pct is None:
-        return ("<div class='card'><div class='sec'>Moisture Deficit</div>"
-                "<div style='color:#484F58;font-size:.88rem'>Off-season â€” crop not actively growing.</div></div>")
-    pct = min(100, max(0, sat_pct))
-    bc  = "#3FB950" if pct >= 80 else ("#E3B341" if pct >= 50 else "#F0883E")
-    return (f"<div class='card'>"
-            f"<div class='sec'>Moisture Deficit</div>"
-            f"<div style='font-size:2rem;font-weight:700;color:{bc};line-height:1'>{pct:.0f}%</div>"
-            f"<div style='font-size:.8rem;color:#8B949E;margin-top:2px'>Water Needs Met (90 days)</div>"
-            f"<div style='background:#21262D;border-radius:5px;height:10px;"
-            f"overflow:hidden;margin:10px 0'>"
-            f"<div style='width:{pct:.0f}%;height:100%;background:{bc};border-radius:5px'></div></div>"
-            f"<div style='font-size:.8rem;color:#8B949E'>"
-            f"<span style='color:#E6EDF3'>{received:.0f} mm</span> received"
-            f" &nbsp;Â·&nbsp; <span style='color:#E6EDF3'>{needed:.0f} mm</span> needed"
-            f" &nbsp;Â·&nbsp; Deficit: <span style='color:#F0883E;font-weight:600'>â€“{deficit:.0f} mm</span>"
-            f"</div></div>")
-
-
-def _kpi(icon, label, value, sub, status_text, tc):
-    cls = "kpi-ok" if "ok" in tc.lower() or tc == "#3FB950" else (
-          "kpi-warn" if tc == "#E3B341" else "kpi-bad")
-    return (f"<div class='kpi {cls}'>"
-            f"<div class='kpi-lbl'>{icon} {label}</div>"
-            f"<div class='kpi-val'>{value}</div>"
-            f"<div style='font-size:.75rem;color:{tc};font-weight:500;margin-top:3px'>{status_text}</div>"
-            f"<div class='kpi-sub'>{sub}</div></div>")
-
-
-def _actions(recs, level):
-    scheme = {
-        "Extreme": [("#FF7B72","HIGH"),("#FF7B72","HIGH"),("#E3B341","MEDIUM"),("#E3B341","MEDIUM"),("#3FB950","LOW")],
-        "Severe":  [("#F0883E","HIGH"),("#F0883E","HIGH"),("#E3B341","MEDIUM"),("#E3B341","MEDIUM"),("#3FB950","LOW")],
-        "Warning": [("#E3B341","MEDIUM"),("#E3B341","MEDIUM"),("#3FB950","LOW"),("#3FB950","LOW")],
-        "Watch":   [("#58A6FF","LOW")] * 4,
-        "Normal":  [("#3FB950","LOW")] * 4,
-    }
-    priorities = scheme.get(level, scheme["Normal"])
-    html = ("<div class='card' style='padding:0;overflow:hidden'>"
-            "<div style='background:#1C2128;padding:10px 18px;border-bottom:1px solid #2D3741;"
-            "font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:#8B949E'>"
-            "ðŸ“‹ REQUIRED AGRONOMIC ACTIONS</div>")
-    for i, rec in enumerate(recs):
-        tc, pri = priorities[min(i, len(priorities)-1)]
-        sep = "" if i == len(recs)-1 else "border-bottom:1px solid #21262D;"
-        html += (f"<div style='display:flex;align-items:flex-start;gap:12px;"
-                 f"padding:11px 18px;border-left:3px solid {tc};{sep}'>"
-                 f"<span style='background:{tc}20;color:{tc};border:1px solid {tc}44;"
-                 f"font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:4px;"
-                 f"white-space:nowrap;margin-top:1px'>{pri}</span>"
-                 f"<span style='font-size:.87rem;color:#C9D1D9;line-height:1.55'>{rec}</span></div>")
-    html += "</div>"
-    return html
-
-
-# â”€â”€ Chart functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS — charts
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _gauge(score, color):
-    """Half-donut risk gauge â€” clean dark slate style."""
-    fig, ax = plt.subplots(figsize=(3.2, 2.0), facecolor="none")
+    """Half-donut risk gauge."""
+    fig, ax = plt.subplots(figsize=(3.6, 2.2), facecolor="none")
     ax.set_facecolor("none")
-    Î¸ = np.linspace(np.pi, 0, 300)
-    ax.plot(np.cos(Î¸), np.sin(Î¸), color="#21262D", linewidth=22, solid_capstyle="round", zorder=1)
+    θ = np.linspace(np.pi, 0, 300)
+    ax.plot(np.cos(θ), np.sin(θ), color="#1e2535", linewidth=22, solid_capstyle="round", zorder=1)
     if score > 0:
-        Î¸v = np.linspace(np.pi, np.pi - (min(score,100)/100)*np.pi, 300)
-        ax.plot(np.cos(Î¸v), np.sin(Î¸v), color=color, linewidth=22, solid_capstyle="round", zorder=2)
-    ax.text(0, 0.14, f"{score:.0f}", ha="center", va="center",
-            fontsize=38, fontweight="700", color="#E6EDF3", zorder=3)
-    ax.text(0, -0.28, "out of 100", ha="center", va="center",
-            fontsize=7.5, color="#484F58", zorder=3)
-    ax.set_xlim(-1.4, 1.4); ax.set_ylim(-0.52, 1.4); ax.axis("off")
+        θv = np.linspace(np.pi, np.pi - (min(score,100)/100)*np.pi, 300)
+        ax.plot(np.cos(θv), np.sin(θv), color=color, linewidth=22, solid_capstyle="round", zorder=2)
+    ax.text(0, 0.18, f"{score:.0f}", ha="center", va="center",
+            fontsize=38, fontweight="bold", color="white", zorder=3)
+    ax.text(0, -0.22, "/ 100  drought risk", ha="center", va="center",
+            fontsize=8.5, color="#a0aec0", zorder=3)
+    ax.set_xlim(-1.4, 1.4); ax.set_ylim(-0.55, 1.4); ax.axis("off")
     return fig
 
 
 def _ax_style(ax, xlabel_rotation=30):
-    """Consistent premium chart style."""
+    """Consistent dark-theme chart style."""
     ax.set_facecolor("none")
-    ax.tick_params(colors="#52a874", labelsize=7.5)
+    ax.tick_params(colors="#94a3b8", labelsize=8)
     ax.spines[:].set_visible(False)
-    ax.grid(axis="y", color="#34d399", alpha=0.04, linewidth=0.5)
+    ax.grid(axis="y", color="white", alpha=0.05, linewidth=0.6)
     plt.xticks(rotation=xlabel_rotation, ha="right")
     for lbl in ax.get_xticklabels() + ax.get_yticklabels():
-        lbl.set_color("#52a874")
-
-
-# â”€â”€ HTML component helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def _hero_html(score, level, color, emoji, summary, crop, stage, location,
-               satisfaction_pct, received_mm, needed_mm):
-    """Full-width hero card: risk score + summary + water bar."""
-    _bg = {
-        "Extreme": "rgba(120,20,20,.55)",
-        "Severe":  "rgba(110,50,10,.55)",
-        "Warning": "rgba(110,85,5,.5)",
-        "Watch":   "rgba(20,50,100,.5)",
-        "Normal":  "rgba(5,50,25,.55)",
-    }.get(level, "rgba(5,50,25,.55)")
-
-    bar_col = "#ef4444" if satisfaction_pct < 50 else ("#fbbf24" if satisfaction_pct < 80 else "#34d399")
-    bar_w   = min(100, max(0, satisfaction_pct))
-    sat_line = (
-        f"<div style='margin-top:18px'>"
-        f"<div style='font-size:.72rem;color:rgba(255,255,255,.5);text-transform:uppercase;"
-        f"letter-spacing:.09em;margin-bottom:6px'>Crop water needs met â€” last 90 days</div>"
-        f"<div style='background:rgba(255,255,255,.08);border-radius:7px;height:12px;overflow:hidden;max-width:480px'>"
-        f"<div style='width:{bar_w:.0f}%;height:100%;background:{bar_col};border-radius:7px'></div></div>"
-        f"<div style='font-size:.8rem;color:rgba(255,255,255,.5);margin-top:5px'>"
-        f"<b style='color:{bar_col}'>{satisfaction_pct:.0f}% met</b>"
-        f" Â· {received_mm:.0f} mm received Â· {needed_mm:.0f} mm needed</div>"
-        f"</div>"
-    ) if satisfaction_pct is not None else ""
-
-    return f"""
-<div class='hero' style='background:linear-gradient(135deg,{_bg} 0%,rgba(4,12,7,.95) 100%)'>
-  <div class='hero-glow' style='background:{color}'></div>
-  <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>
-    <span style='font-size:.72rem;font-weight:700;text-transform:uppercase;
-      letter-spacing:.12em;color:rgba(255,255,255,.5)'>Drought Risk Score</span>
-    <span style='font-size:.72rem;font-weight:600;padding:2px 10px;border-radius:20px;
-      background:rgba(255,255,255,.08);color:rgba(255,255,255,.6)'>{location}</span>
-  </div>
-  <div style='display:flex;align-items:baseline;gap:14px;flex-wrap:wrap'>
-    <span class='hero-score' style='color:{color}'>{score:.0f}</span>
-    <div>
-      <div class='hero-level' style='color:{color}'>{emoji} {level} Risk</div>
-      <div style='font-size:.84rem;color:rgba(255,255,255,.5);margin-top:2px'>
-        {crop} &nbsp;Â·&nbsp; {stage}
-      </div>
-    </div>
-  </div>
-  <p class='hero-summary'>{summary}</p>
-  {sat_line}
-</div>"""
-
-
-def _kpi_tile(icon, label, value, sub, status="ok"):
-    return (f"<div class='kpi kpi-{status}'>"
-            f"<span class='kpi-icon'>{icon}</span>"
-            f"<div class='kpi-lbl'>{label}</div>"
-            f"<div class='kpi-val'>{value}</div>"
-            f"<div class='kpi-sub'>{sub}</div></div>")
-
-
-def _rec_html(text, severity="info"):
-    cls = {"critical": "rec-crit", "warning": "rec-warn", "info": "rec-info"}.get(severity, "rec-info")
-    return f"<div class='rec {cls}'>{text}</div>"
-
-
-def _insight_stats(*stats):
-    """Render a row of (value, label) pairs inside an insight box."""
-    items = "".join(
-        f"<div style='text-align:center;padding:8px 14px'>"
-        f"<span class='istat'>{v}</span>"
-        f"<span class='istat-lbl'>{l}</span></div>"
-        for v, l in stats
-    )
-    return f"<div style='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px'>{items}</div>"
+        lbl.set_color("#94a3b8")
 
 
 def _monthly_bar_chart(df_hist, daily_demand_mm, cal):
@@ -860,65 +585,69 @@ def _monthly_bar_chart(df_hist, daily_demand_mm, cal):
     monthly["label"] = monthly["ym"].dt.strftime("%b '%y")
 
     def _bar_color(row):
-        if row["needed_mm"] == 0: return "#21262D"
-        if row["precip_mm"] >= row["needed_mm"] * 0.9: return "#3FB950"
-        if row["precip_mm"] >= row["needed_mm"] * 0.6: return "#E3B341"
-        return "#F0883E"
+        if row["needed_mm"] == 0: return "#334155"          # off-season, slate
+        if row["precip_mm"] >= row["needed_mm"] * 0.9: return "#22c55e"   # met
+        if row["precip_mm"] >= row["needed_mm"] * 0.6: return "#f59e0b"   # borderline
+        return "#ef4444"                                      # deficit
 
     colors = monthly.apply(_bar_color, axis=1)
 
     fig, ax = plt.subplots(figsize=(8, 2.8), facecolor="none")
-    ax.bar(range(len(monthly)), monthly["precip_mm"], color=colors, alpha=0.88, width=0.62, zorder=2)
-    ax.plot(range(len(monthly)), monthly["needed_mm"], color="#58A6FF",
-            linewidth=1.5, linestyle="--", marker="o", markersize=3, label="Crop water need", zorder=3)
+    ax.bar(range(len(monthly)), monthly["precip_mm"], color=colors, alpha=0.85, width=0.65, zorder=2)
+    ax.plot(range(len(monthly)), monthly["needed_mm"], color="#38ef7d",
+            linewidth=1.6, linestyle="--", marker="o", markersize=3.5,
+            label="Crop water need", zorder=3)
     ax.set_xticks(range(len(monthly)))
     ax.set_xticklabels(monthly["label"])
-    _ax(ax)
-    ax.set_ylabel("mm", color="#484F58", fontsize=8)
+    _ax_style(ax)
+    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
+
     from matplotlib.patches import Patch
-    ax.legend(handles=[
-        Patch(facecolor="#3FB950", alpha=0.88, label="Adequate"),
-        Patch(facecolor="#E3B341", alpha=0.88, label="Below optimal"),
-        Patch(facecolor="#F0883E", alpha=0.88, label="Critical deficit"),
-        Patch(facecolor="#21262D", alpha=0.88, label="Off-season"),
-        plt.Line2D([0],[0], color="#58A6FF", linewidth=1.5, linestyle="--", label="Crop need"),
-    ], facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7, ncol=3)
+    legend_els = [
+        Patch(facecolor="#22c55e", alpha=0.85, label="Adequate (≥ 90% of need)"),
+        Patch(facecolor="#f59e0b", alpha=0.85, label="Below optimal (60–90%)"),
+        Patch(facecolor="#ef4444", alpha=0.85, label="Critical deficit (< 60%)"),
+        Patch(facecolor="#334155", alpha=0.85, label="Off-season"),
+        plt.Line2D([0],[0], color="#38ef7d", linewidth=1.5, linestyle="--", label="Crop water need"),
+    ]
+    ax.legend(handles=legend_els, facecolor="#0d1117", edgecolor="#1e293b",
+              labelcolor="#cbd5e1", fontsize=7, ncol=2, loc="upper right")
     return fig
 
 
 def _forecast_chart(df_fc, daily_demand_mm):
-    """Forecast bars coloured by whether they meet daily crop need."""
-    colors = ["#3FB950" if r >= daily_demand_mm else
-              ("#E3B341" if r >= daily_demand_mm * 0.5 else "#F0883E")
+    """Forecast bars coloured by whether they meet crop daily need."""
+    colors = ["#22c55e" if r >= daily_demand_mm else
+              ("#f59e0b" if r >= daily_demand_mm * 0.5 else "#ef4444")
               for r in df_fc["precip_mm"]]
     fig, ax = plt.subplots(figsize=(8, 2.6), facecolor="none")
-    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.88, width=0.8, zorder=2)
-    ax.axhline(daily_demand_mm, color="#58A6FF", linestyle="--",
+    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.85, width=0.8, zorder=2)
+    ax.axhline(daily_demand_mm, color="#38ef7d", linestyle="--",
                linewidth=1.4, label=f"Daily crop need ({daily_demand_mm} mm)", zorder=3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
-    _ax(ax)
-    ax.set_ylabel("mm/day", color="#484F58", fontsize=8)
-    ax.legend(facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7)
+    _ax_style(ax)
+    ax.set_ylabel("mm/day", color="#94a3b8", fontsize=8)
+    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
     return fig
 
 
 def _water_balance_chart(df_hist):
-    """Cumulative P âˆ’ ETâ‚€ over last 90 days."""
+    """Cumulative P − ET₀ over last 90 days."""
     df = df_hist.tail(90).copy()
     cum = df["water_balance_mm"].cumsum()
     fig, ax = plt.subplots(figsize=(8, 2.5), facecolor="none")
-    ax.plot(df["date"], cum, color="#8B949E", linewidth=1.5, zorder=3)
+    ax.plot(df["date"], cum, color="#94a3b8", linewidth=1.6, zorder=3)
     ax.fill_between(df["date"], cum, 0, where=(cum < 0),
-                    color="#F0883E", alpha=0.2, label="Deficit", zorder=2)
+                    color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
     ax.fill_between(df["date"], cum, 0, where=(cum >= 0),
-                    color="#3FB950", alpha=0.15, label="Surplus", zorder=2)
-    ax.axhline(0, color="#2D3741", linewidth=1)
+                    color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
+    ax.axhline(0, color="white", linewidth=0.5, alpha=0.3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-    _ax(ax)
-    ax.set_ylabel("mm", color="#484F58", fontsize=8)
-    ax.legend(facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7)
+    _ax_style(ax)
+    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
+    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
     return fig
 
 
@@ -961,9 +690,9 @@ def _crop_calendar_strip(cal, current_month):
     return fig
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 # CACHED DATA FETCHERS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _cached_weather(lat, lon):
@@ -980,303 +709,294 @@ def _cached_enso():
     return fetch_current_oni()
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
+# ─────────────────────────────────────────────────────────────────────────────
 if "point"       not in st.session_state: st.session_state.point = PRESETS["Mazabuka, Zambia"]["coords"]
 if "preset_name" not in st.session_state: st.session_state.preset_name = "Mazabuka, Zambia"
 
-# Sidebar â€” minimal: only AI key
-with st.sidebar:
-    st.markdown("### ðŸ›°ï¸ ENSA")
-    st.caption("El NiÃ±o Sentinel Agent")
-    st.markdown("---")
-    st.markdown("**AI Analysis** *(optional)*")
-    st.caption("Core dashboard is 100% free. Paste your own key for AI narrative.")
-    ai_provider = st.selectbox("Provider", ["Anthropic (Claude)", "OpenAI (GPT-4o-mini)"],
-                               label_visibility="collapsed")
-    ai_key = st.text_input("API Key", type="password", placeholder="sk-ant-... or sk-...",
-                           label_visibility="collapsed")
-    st.markdown("---")
-    st.caption("Weather: Open-Meteo ERA5\nENSO: NOAA CPC\nAll data is real â€” no simulations.")
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────────────────
+st.sidebar.markdown(
+    "<h2 style='text-align:center;margin-bottom:4px'>🌾 ENSA</h2>"
+    "<p style='text-align:center;color:#a0aec0;font-size:.85rem;margin-top:0'>"
+    "El Niño Sentinel Agent</p>", unsafe_allow_html=True)
+st.sidebar.markdown("---")
 
-# Derive region early (needed for crop selector)
+st.sidebar.subheader("1. Location")
+preset_name = st.sidebar.selectbox("Preset location", list(PRESETS.keys()),
+    index=list(PRESETS.keys()).index(st.session_state.preset_name))
+if preset_name != st.session_state.preset_name:
+    st.session_state.preset_name = preset_name
+    if preset_name != "Custom Point":
+        st.session_state.point = PRESETS[preset_name]["coords"]
+    st.rerun()
+
+c1, c2 = st.sidebar.columns(2)
+with c1: lat_in = st.number_input("Latitude",  value=float(st.session_state.point[0]), format="%.4f")
+with c2: lon_in = st.number_input("Longitude", value=float(st.session_state.point[1]), format="%.4f")
+if [lat_in, lon_in] != list(st.session_state.point):
+    st.session_state.point = [lat_in, lon_in]
+    st.session_state.preset_name = "Custom Point"
+    st.rerun()
+
 lat, lon = st.session_state.point
 active_region = _detect_region(lat, lon)
-cal_region    = CROP_CALENDARS.get(active_region, CROP_CALENDARS["Global"])
+cal_region = CROP_CALENDARS.get(active_region, CROP_CALENDARS["Global"])
 
-# Load data (cached)
+st.sidebar.markdown("---")
+st.sidebar.subheader("2. Crop")
+crop_choice = st.sidebar.selectbox("Crop type", list(cal_region.keys()))
+cal = cal_region[crop_choice]
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("3. Assessment Date")
+st.sidebar.caption("Pick any past date to analyse historical conditions.")
+assessment_date = st.sidebar.date_input("Date",
+    value=datetime.now().date(),
+    min_value=datetime(2000,1,1).date(),
+    max_value=(datetime.now()+timedelta(days=14)).date())
+a_month = assessment_date.month
+crop_stage = cal["stages"][a_month]
+is_active  = _is_active(cal, a_month)
+is_fc_mode = assessment_date > (datetime.now()-timedelta(days=5)).date()
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("4. AI Analysis (optional)")
+st.sidebar.caption("Core dashboard is 100% free. Paste your own API key for an AI-written narrative.")
+ai_provider = st.sidebar.selectbox("Provider", ["Anthropic (Claude)", "OpenAI (GPT-4o-mini)"])
+ai_key = st.sidebar.text_input("API Key", type="password", placeholder="sk-ant-... or sk-...")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='font-size:.75rem;color:#718096;text-align:center'>"
+    "Weather: Open-Meteo ERA5 · ENSO: NOAA CPC<br>All data is real — no simulations.</div>",
+    unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────────────────────
 _lat_r, _lon_r = round(lat, 3), round(lon, 3)
 df_weather = df_forecast = None
 weather_error = None
-with st.spinner("Loading weather dataâ€¦"):
-    try:    df_weather  = _cached_weather(_lat_r, _lon_r)
-    except Exception as e: weather_error = str(e)
-    try:    df_forecast = _cached_forecast(_lat_r, _lon_r)
-    except Exception: pass
+
+with st.spinner("Fetching real weather data from Open-Meteo ERA5…"):
+    try:
+        df_weather = _cached_weather(_lat_r, _lon_r)
+    except Exception as e:
+        weather_error = str(e)
+    try:
+        df_forecast = _cached_forecast(_lat_r, _lon_r)
+    except Exception:
+        pass
     oni = _cached_enso()
+
 data_ok = df_weather is not None and not df_weather.empty
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# HEADER BAR
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-oni_v = oni["value"]
-if oni_v >= 1.5:    ep_bg, ep_tc = "#6E1C1C", "#FF7B72"
-elif oni_v >= 0.5:  ep_bg, ep_tc = "#5C3700", "#E3B341"
-elif oni_v <= -0.5: ep_bg, ep_tc = "#0D2A4A", "#58A6FF"
-else:               ep_bg, ep_tc = "#1A3020", "#3FB950"
-
-live = "â—" if "Offline" not in oni["source"] else "â—‹"
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────────────────────────────────────
 st.markdown(
-    f"<div style='background:#161C22;border-bottom:1px solid #21262D;"
-    f"padding:10px 0;margin-bottom:16px;"
-    f"display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px'>"
-    f"<div style='display:flex;align-items:center;gap:14px'>"
-    f"<span style='font-size:1.1rem;font-weight:700;color:#E6EDF3;letter-spacing:-.02em'>"
-    f"ðŸ›°ï¸ ENSA</span>"
-    f"<span style='font-size:.76rem;color:#484F58;border-left:1px solid #2D3741;"
-    f"padding-left:12px'>Drought Early-Warning</span></div>"
-    f"<div style='display:flex;align-items:center;gap:10px'>"
-    f"<span style='background:{ep_bg};color:{ep_tc};border:1px solid {ep_tc}44;"
-    f"padding:4px 12px;border-radius:6px;font-size:.76rem;font-weight:600'>"
-    f"ðŸŒ¡ï¸ {oni['phase']}: NINO3.4 {oni_v:+.2f}Â°C</span>"
-    f"<span style='font-size:.72rem;color:#484F58'>{live} NOAA {oni['month_name']} {oni['year']}</span>"
-    f"</div></div>",
-    unsafe_allow_html=True,
-)
+    "<h1 style='background:linear-gradient(90deg,#38ef7d,#11998e);"
+    "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>"
+    "El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
+st.markdown(
+    f"<p style='color:#a0aec0;font-size:1.0rem;margin-top:-8px'>"
+    f"Agricultural drought early-warning · {active_region} · "
+    f"All data live from Open-Meteo ERA5 & NOAA CPC</p>", unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# ROW 1: MAP (left)  +  LOCATION & CROP CONTROLS (right)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-col_map, col_ctrl = st.columns([3, 2])
+# ENSO BANNER
+oni_v = oni["value"]
+if oni_v >= 1.5:   enso_bg, enso_txt = "#7f1d1d","#fca5a5"
+elif oni_v >= 0.5: enso_bg, enso_txt = "#78350f","#fcd34d"
+elif oni_v <= -0.5:enso_bg, enso_txt = "#1e3a5f","#93c5fd"
+else:              enso_bg, enso_txt = "#14532d","#86efac"
 
-with col_map:
-    st.markdown("<div class='card' style='padding:14px 16px'>", unsafe_allow_html=True)
-    st.markdown("<div class='sec'>ðŸ“ Select your farm location</div>", unsafe_allow_html=True)
-    st.caption("Click anywhere on the map to drop a pin on your farm.")
-    m_map = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
-    folium.Marker(
-        [lat, lon], tooltip=f"{lat:.4f}Â°, {lon:.4f}Â°",
-        icon=folium.Icon(color="green", icon="leaf", prefix="fa"),
-    ).add_to(m_map)
-    map_out = st_folium(m_map, height=270, use_container_width=True, key="farm_map")
-    if map_out and map_out.get("last_clicked"):
-        clat = map_out["last_clicked"]["lat"]
-        clon = map_out["last_clicked"]["lng"]
-        if [round(clat, 3), round(clon, 3)] != [round(lat, 3), round(lon, 3)]:
-            st.session_state.point = [clat, clon]
-            st.session_state.preset_name = "Custom Point"
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+live_tag = "🔴 LIVE" if "Offline" not in oni["source"] else "⚫ OFFLINE"
+st.markdown(
+    f"<div style='background:{enso_bg};border-radius:10px;padding:10px 18px;"
+    f"margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap'>"
+    f"<span class='enso-chip' style='background:rgba(255,255,255,.15);color:{enso_txt}'>"
+    f"NINO3.4: {oni_v:+.2f}°C</span>"
+    f"<span style='color:{enso_txt};font-weight:700'>{oni['phase']}</span>"
+    f"<span style='color:rgba(255,255,255,.55);font-size:.83rem'>"
+    f"{live_tag} · {oni['month_name']} {oni['year']} · {oni['source']}</span>"
+    f"</div>", unsafe_allow_html=True)
 
-with col_ctrl:
-    st.markdown("<div class='card' style='padding:16px 18px'>", unsafe_allow_html=True)
-    st.markdown("<div class='sec'>ðŸ“ Location & Crop</div>", unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────────────────────
+# TABS
+# ─────────────────────────────────────────────────────────────────────────────
+tab_status, tab_history, tab_fc, tab_about = st.tabs([
+    "🌾 Farm Status", "📈 90-Day History", "🔮 14-Day Forecast", "📖 Methodology"])
 
-    # Derived location name
-    st.markdown(
-        f"<div style='font-size:.88rem;color:#E6EDF3;font-weight:600;margin-bottom:4px'>"
-        f"{st.session_state.preset_name}</div>"
-        f"<div style='font-size:.76rem;color:#484F58;margin-bottom:12px'>"
-        f"Lat {lat:.4f}Â° &nbsp;Â·&nbsp; Lon {lon:.4f}Â° &nbsp;Â·&nbsp; {active_region}</div>",
-        unsafe_allow_html=True)
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 1: FARM STATUS
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_status:
+    col_map, col_info = st.columns([3,1])
 
-    crop_choice     = st.selectbox("Crop", list(cal_region.keys()), label_visibility="collapsed",
-                                   key="crop_sel")
-    cal             = cal_region[crop_choice]
-    assessment_date = st.date_input("Date", value=datetime.now().date(),
-                                    min_value=datetime(2000,1,1).date(),
-                                    max_value=(datetime.now()+timedelta(days=14)).date(),
-                                    label_visibility="collapsed", key="date_sel")
-
-    a_month    = assessment_date.month
-    crop_stage = cal["stages"][a_month]
-    is_active  = _is_active(cal, a_month)
-    is_fc_mode = assessment_date > (datetime.now()-timedelta(days=5)).date()
-
-    # Mini crop calendar
-    st.markdown("<div class='sec' style='margin-top:14px'>ðŸ“… Crop Timeline & Stage</div>",
-                unsafe_allow_html=True)
-    st.markdown(_mini_cal(cal, a_month), unsafe_allow_html=True)
-
-    # Quick presets
-    st.markdown("<div class='sec' style='margin-top:14px'>âœ¨ Quick Presets</div>",
-                unsafe_allow_html=True)
-    preset_keys = [k for k in PRESETS if k != "Custom Point"]
-    pc = st.columns(min(4, len(preset_keys)))
-    for i, pk in enumerate(preset_keys[:4]):
-        with pc[i]:
-            short = pk.split(",")[0]
-            if st.button(short, key=f"p_{i}", use_container_width=True):
-                st.session_state.point = PRESETS[pk]["coords"]
-                st.session_state.preset_name = pk
+    with col_map:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("📍 Select Your Farm")
+        st.caption("Click the map to move the pin to your farm location.")
+        m = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
+        folium.Marker([lat, lon], tooltip=f"{lat:.4f}°, {lon:.4f}°",
+                      icon=folium.Icon(color="green", icon="leaf")).add_to(m)
+        map_out = st_folium(m, height=300, use_container_width=True, key="main_map")
+        if map_out and map_out.get("last_clicked"):
+            clat = map_out["last_clicked"]["lat"]
+            clon = map_out["last_clicked"]["lng"]
+            if [round(clat,3), round(clon,3)] != [round(lat,3), round(lon,3)]:
+                st.session_state.point = [clat, clon]
+                st.session_state.preset_name = "Custom Point"
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
+    with col_info:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label'>Detected Region</div><div class='kpi-value' style='font-size:1.1rem'>{active_region}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Crop</div><div class='kpi-value' style='font-size:1.05rem'>{crop_choice}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='kpi-label' style='margin-top:10px'>Stage · {assessment_date.strftime('%b %Y')}</div><div class='kpi-value' style='font-size:.92rem'>{crop_stage}</div>", unsafe_allow_html=True)
+        if is_fc_mode:    st.info("🔮 Forecast mode")
+        elif not is_active: st.warning("Off-season / Fallow")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if not data_ok:
+        st.error(f"**Could not load weather data.**\n\nError: `{weather_error or 'empty API response'}`\n\nCheck your internet connection, or try a different location.")
+        st.stop()
+
+    # Slice to assessment date
+    a_dt = pd.Timestamp(assessment_date)
+    if is_fc_mode and df_forecast is not None and not df_forecast.empty:
+        df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
+    else:
+        df_all = df_weather.copy()
+    df_slice = df_all[df_all["date"] <= a_dt]
+
+    assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
+    score  = assessment["score"]
+    level  = assessment["alert_level"]
+    color  = assessment["alert_color"]
+    emoji  = assessment["alert_emoji"]
+
+    tail90 = df_slice.tail(90)
+    precip_90  = float(tail90["precip_mm"].sum())
+    et0_90     = float(tail90["et0_mm"].sum())
+    deficit_90 = max(0.0, et0_90 - precip_90)
+    temp_90    = float(tail90["temp_c"].mean())
+
+    # Water satisfaction (how much of crop need was met by rain)
+    if is_active:
+        needed = cal["daily_demand_mm"] * len(tail90)
+        satisfaction_pct = min(150.0, (precip_90 / (needed + 1e-6)) * 100)
+    else:
+        needed = 0; satisfaction_pct = None
+
+    # ── RISK GAUGE + SUMMARY ─────────────────────────────────────────────
+    col_gauge, col_summary = st.columns([1, 3])
+    with col_gauge:
+        st.markdown("<div class='card' style='text-align:center'>", unsafe_allow_html=True)
+        st.pyplot(_gauge(score, color), use_container_width=True)
+        st.markdown(f"<div style='text-align:center;color:{color};font-weight:700;font-size:1.1rem'>{emoji} {level}</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_summary:
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+                                        st.session_state.preset_name)
+        st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
+                    unsafe_allow_html=True)
+
+        if satisfaction_pct is not None:
+            bar_color = "#ef4444" if satisfaction_pct < 50 else ("#f59e0b" if satisfaction_pct < 80 else "#22c55e")
+            bar_w = min(100, satisfaction_pct)
+            st.markdown(
+                f"<div style='margin-top:14px'>"
+                f"<div class='kpi-label'>Crop Water Needs Met (last 90 days)</div>"
+                f"<div class='sat-bar-wrap'><div class='sat-bar-fill' style='width:{bar_w:.0f}%;background:{bar_color}'></div></div>"
+                f"<div style='font-size:.85rem;color:#a0aec0'>"
+                f"Rain received: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
+                f"Crop needed: <b style='color:#fff'>{needed:.0f} mm</b> · "
+                f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}% met</b></div>"
+                f"</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── CROP CALENDAR STRIP ──────────────────────────────────────────────
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader("📅 Crop Growth Calendar")
+    st.caption("Green = growing · Red = critical water stage · Orange = harvesting · Dark = fallow. Border = current month.")
+    st.pyplot(_crop_calendar_strip(cal, a_month), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# FAIL-FAST: show error and stop if no weather data
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-if not data_ok:
-    st.markdown(
-        f"<div style='background:#3D0000;border:1px solid #FF7B7244;border-radius:8px;"
-        f"padding:14px 18px;margin:10px 0'>"
-        f"<b style='color:#FF7B72'>Could not load weather data</b><br>"
-        f"<span style='color:#C9D1D9;font-size:.88rem'>"
-        f"Error: {weather_error or 'empty API response'}<br>"
-        f"Check your internet connection or try a different location.</span></div>",
-        unsafe_allow_html=True)
-    st.stop()
+    # ── 4 METRIC CARDS ──────────────────────────────────────────────────
+    opt_t_lo, opt_t_hi = cal["optimal_temp"]
+    st.markdown("### Key Indicators (last 90 days — real ERA5 data)")
+    m1, m2, m3, m4 = st.columns(4)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# COMPUTE ASSESSMENT
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-a_dt = pd.Timestamp(assessment_date)
-if is_fc_mode and df_forecast is not None and not df_forecast.empty:
-    df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
-else:
-    df_all = df_weather.copy()
-df_slice   = df_all[df_all["date"] <= a_dt]
-assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
+    def _kpi(col, label, val, sub, ok):
+        dot = "🟢" if ok else "🔴"
+        col.markdown(f"<div class='card'><div class='kpi-label'>{label}</div>"
+                     f"<div class='kpi-value'>{val}</div>"
+                     f"<div class='kpi-sub'>{dot} {sub}</div></div>", unsafe_allow_html=True)
 
-score = assessment["score"]
-level = assessment["alert_level"]
-color = RISK_COLORS.get(level, "#8B949E")
+    _kpi(m1,"Rainfall (90d)", f"{precip_90:.0f} mm",
+         f"Need: {cal['daily_demand_mm']*90:.0f} mm for full season",
+         precip_90 >= cal["daily_demand_mm"] * 90 * 0.7)
+    _kpi(m2,"Water Deficit (90d)", f"{deficit_90:.0f} mm",
+         f"Evaporation demand: {et0_90:.0f} mm",
+         deficit_90 < 100)
+    _kpi(m3,"Mean Temperature", f"{temp_90:.1f} °C",
+         f"Optimal: {opt_t_lo}–{opt_t_hi}°C",
+         opt_t_lo <= temp_90 <= opt_t_hi + 2)
+    _kpi(m4,"SPI-3 Index", f"{assessment['spi3']:+.2f}",
+         "< –1.0 = drought · < –2.0 = severe",
+         assessment["spi3"] >= -1.0)
 
-tail90     = df_slice.tail(90)
-precip_90  = float(tail90["precip_mm"].sum())
-et0_90     = float(tail90["et0_mm"].sum())
-deficit_90 = max(0.0, et0_90 - precip_90)
-temp_90    = float(tail90["temp_c"].mean())
+    # ── RECOMMENDATIONS ──────────────────────────────────────────────────
+    st.markdown("### What to do")
+    for rec in generate_recommendations(assessment, crop_choice, crop_stage, oni_v):
+        st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
 
-if is_active:
-    needed           = cal["daily_demand_mm"] * len(tail90)
-    satisfaction_pct = min(150.0, (precip_90 / (needed + 1e-6)) * 100)
-else:
-    needed = 0; satisfaction_pct = None
+    # ── AI ANALYSIS ──────────────────────────────────────────────────────
+    with st.expander("🤖 AI-Enhanced Analysis (optional)"):
+        st.caption("Paste your Anthropic or OpenAI key in the sidebar to unlock.")
+        if st.button("Generate AI Analysis", disabled=not bool(ai_key)):
+            provider = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
+            with st.spinner("Asking AI…"):
+                txt = call_llm_narrative(assessment, crop_choice, crop_stage, oni,
+                                         st.session_state.preset_name, ai_key, provider)
+            st.markdown(txt)
 
-summary_text = generate_summary(
-    assessment, crop_choice, crop_stage, oni["phase"], st.session_state.preset_name)
+    # ── SAVE ────────────────────────────────────────────────────────────
+    with st.expander("💾 Save this assessment"):
+        if st.button("Save to local database"):
+            try:
+                init_db()
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("INSERT OR IGNORE INTO regional_targets "
+                          "(region_name,country,crop_type,bbox_coords,is_scheduled) VALUES(?,?,?,?,?)",
+                          (st.session_state.preset_name, active_region, crop_choice, f"{lon},{lat}", 0))
+                c.execute("INSERT INTO self_correction_journal "
+                          "(journal_date,assessment_period,target_district,raw_pdsi_forecast,"
+                          "observed_pdsi,forecast_rmse,agent_reasoning,parameter_adjustments)"
+                          " VALUES(?,?,?,?,?,?,?,?)",
+                          (datetime.now().strftime("%Y-%m-%d"), "Manual",
+                           st.session_state.preset_name, assessment["spi3"],
+                           -deficit_90/100, abs(score-50),
+                           generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+                                            st.session_state.preset_name),
+                           f'{{"score":{score},"level":"{level}","oni":{oni_v}}}'))
+                conn.commit(); conn.close()
+                st.success("Saved!")
+            except Exception as e:
+                st.error(f"Save failed: {e}")
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# ALERT TICKER
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-st.markdown(_ticker(assessment, crop_choice, st.session_state.preset_name),
-            unsafe_allow_html=True)
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# ROW 2: SCORE CARD  +  DEFICIT CARD
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-col_score, col_deficit = st.columns(2)
-with col_score:
-    st.markdown(_score_card(score, level, assessment["spi3"]), unsafe_allow_html=True)
-with col_deficit:
-    st.markdown(_deficit_card(satisfaction_pct, precip_90, needed, deficit_90),
-                unsafe_allow_html=True)
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# ROW 3: 4 KPI TILES
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-opt_t_lo, opt_t_hi = cal["optimal_temp"]
-rain_ok   = precip_90 >= cal["daily_demand_mm"] * 90 * 0.7
-temp_ok   = opt_t_lo <= temp_90 <= opt_t_hi + 2
-spi_ok    = assessment["spi3"] >= -1.0
-
-k1, k2, k3, k4 = st.columns(4)
-with k1:
-    rain_st = "Adequate" if rain_ok else "Below target"
-    st.markdown(
-        _kpi("ðŸŒ§ï¸","90-Day Rain", f"{precip_90:.0f} mm",
-             f"Target â‰¥ {cal['daily_demand_mm']*90*0.7:.0f} mm",
-             rain_st, "#3FB950" if rain_ok else "#F0883E"),
-        unsafe_allow_html=True)
-with k2:
-    spi_desc = ("Extreme dry" if assessment["spi3"] < -2 else
-                "Severe dry"  if assessment["spi3"] < -1.5 else
-                "Moderate dry"if assessment["spi3"] < -1 else
-                "Dry watch"   if assessment["spi3"] < -0.5 else "Normal")
-    st.markdown(
-        _kpi("ðŸ“Š","SPI-3", f"{assessment['spi3']:+.2f}",
-             "< â€“1.0 = drought onset",
-             spi_desc, "#3FB950" if spi_ok else "#F0883E"),
-        unsafe_allow_html=True)
-with k3:
-    temp_st = "Optimal" if temp_ok else ("Heat stress" if temp_90 > opt_t_hi else "Cool")
-    st.markdown(
-        _kpi("ðŸŒ¡ï¸","Avg Temp", f"{temp_90:.1f} Â°C",
-             f"Optimal {opt_t_lo}â€“{opt_t_hi}Â°C",
-             temp_st, "#3FB950" if temp_ok else "#E3B341"),
-        unsafe_allow_html=True)
-with k4:
-    if df_forecast is not None and not df_forecast.empty:
-        best_idx  = df_forecast["precip_mm"].idxmax()
-        best_date = df_forecast.loc[best_idx, "date"].strftime("%b %d")
-        best_mm   = float(df_forecast.loc[best_idx, "precip_mm"])
-        fc_total  = float(df_forecast["precip_mm"].sum())
-        fc_st     = f"Best: {best_mm:.1f} mm on {best_date}"
-        fc_sub    = f"Total forecast: {fc_total:.0f} mm"
-    else:
-        fc_st, fc_sub = "Unavailable", "Check connection"
-    st.markdown(
-        _kpi("ðŸ”®","14-Day Forecast", f"{fc_total:.0f} mm" if df_forecast is not None and not df_forecast.empty else "â€”",
-             fc_sub, fc_st, "#58A6FF"),
-        unsafe_allow_html=True)
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# ROW 4: ACTIONS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-recs = generate_recommendations(assessment, crop_choice, crop_stage, oni_v)
-st.markdown(_actions(recs, level), unsafe_allow_html=True)
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# BOTTOM ACTIONS ROW
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-ba1, ba2, ba3, ba4 = st.columns(4)
-with ba1:
-    if st.button("ðŸ“ˆ View Historical Analytics", use_container_width=True):
-        st.session_state["active_tab"] = "history"
-        st.rerun()
-with ba2:
-    if st.button("ðŸ”® 14-Day Forecast", use_container_width=True):
-        st.session_state["active_tab"] = "forecast"
-        st.rerun()
-with ba3:
-    if st.button("ðŸ“‘ Export Report", use_container_width=True):
-        report = (f"ENSA Drought Report\n{'='*40}\n"
-                  f"Location: {st.session_state.preset_name}\n"
-                  f"Date: {assessment_date}\nCrop: {crop_choice}\n"
-                  f"Stage: {crop_stage}\nRisk Score: {score:.0f}/100 ({level})\n"
-                  f"SPI-3: {assessment['spi3']:+.2f}\n"
-                  f"90-day Rain: {precip_90:.0f} mm\n"
-                  f"Water Deficit: {deficit_90:.0f} mm\n"
-                  f"ENSO: {oni['phase']} ({oni_v:+.2f}Â°C)\n\n"
-                  f"Summary:\n{summary_text}\n\nRecommendations:\n" +
-                  "\n".join(f"- {r}" for r in recs))
-        st.download_button("Download .txt", report,
-                           f"ensa_{assessment_date}_{crop_choice.replace(' ','_')}.txt",
-                           "text/plain", use_container_width=True)
-with ba4:
-    with st.expander("ðŸ¤– AI Analysis"):
-        if ai_key:
-            if st.button("Generate", key="ai_gen"):
-                prov = "anthropic" if "anthropic" in ai_provider.lower() else "openai"
-                with st.spinner("Asking AIâ€¦"):
-                    txt = call_llm_narrative(
-                        assessment, crop_choice, crop_stage, oni,
-                        st.session_state.preset_name, ai_key, prov)
-                st.markdown(txt)
-        else:
-            st.caption("Add your API key in the sidebar to enable.")
-
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# DEEP-DIVE TABS
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-tab_history, tab_fc, tab_about = st.tabs(["ðŸ“ˆ Historical Analytics", "ðŸ”® 14-Day Forecast", "ðŸ“– Methodology"])
-
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# TAB 1: 90-DAY HISTORY
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 2: 90-DAY HISTORY
+# ═══════════════════════════════════════════════════════════════════════════
 with tab_history:
     if not data_ok:
         st.warning(f"No data. {weather_error or ''}")
@@ -1284,7 +1004,7 @@ with tab_history:
         df90 = df_weather.tail(90)
         t_lo, t_hi = cal["optimal_temp"]
 
-        # Pre-compute insights
+        # ── Pre-compute insights ─────────────────────────────────────────
         df_m = df_weather.tail(180).copy()
         df_m["ym"] = df_m["date"].dt.to_period("M")
         monthly_sum = df_m.groupby("ym").agg(
@@ -1293,203 +1013,269 @@ with tab_history:
             lambda r: cal["daily_demand_mm"]*r["n"] if _is_active(cal, r["ym"].month) else 0, axis=1)
         active_months = monthly_sum[monthly_sum["need"] > 0]
 
-        dry_days  = int((df90["precip_mm"] < 1.0).sum())
-        hot_days  = int((df90["temp_c"] > t_hi).sum())
-        cum_wb    = df90["water_balance_mm"].cumsum()
-        trend     = "worsening ðŸ“‰" if float(cum_wb.iloc[-1]) < float(cum_wb.iloc[len(cum_wb)//2]) else "stabilising ðŸ“Š"
-        deficit_months = int((active_months["rain"] < active_months["need"]*0.8).sum()) if not active_months.empty else 0
+        total_rain_90  = float(df90["precip_mm"].sum())
+        total_et0_90   = float(df90["et0_mm"].sum())
+        total_need_90  = cal["daily_demand_mm"] * len(df90)
+        cum_deficit_90 = max(0.0, total_et0_90 - total_rain_90)
+        avg_temp_90    = float(df90["temp_c"].mean())
+        days_above_opt = int((df90["temp_c"] > t_hi).sum())
+        dry_days_90    = int((df90["precip_mm"] < 1.0).sum())
 
-        # â”€â”€ Monthly chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if not active_months.empty:
+            worst_row = active_months.loc[active_months["rain"].idxmin()]
+            worst_month_name = worst_row["ym"].strftime("%B %Y")
+            worst_pct = min(100, (worst_row["rain"] / (worst_row["need"]+1e-6)) * 100)
+            deficit_months = int((active_months["rain"] < active_months["need"] * 0.8).sum())
+        else:
+            worst_month_name, worst_pct, deficit_months = "—", 0, 0
+
+        # cumulative balance trend
+        cum_series = df90["water_balance_mm"].cumsum()
+        trend_dir  = "worsening 📉" if cum_series.iloc[-1] < cum_series.iloc[len(cum_series)//2] else "stabilising 📊"
+
+        # ── SECTION 1: Monthly rainfall ──────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec'>Monthly Rainfall vs Crop Water Requirement</div>", unsafe_allow_html=True)
-        c1, c2 = st.columns([3, 2])
-        with c1:
+        st.subheader("Monthly Rainfall vs Crop Water Requirement")
+        c_chart, c_insight = st.columns([3, 2])
+        with c_chart:
             fig_m = _monthly_bar_chart(df_weather.tail(180), cal["daily_demand_mm"], cal)
             st.pyplot(fig_m, use_container_width=True); plt.close(fig_m)
-            st.caption("ðŸŸ¢ Adequate Â· ðŸŸ¡ Below optimal Â· ðŸ”´ Critical Â· â¬› Off-season  â•Œ Dashed = crop water need")
-        with c2:
-            st.markdown("<div class='insight'>", unsafe_allow_html=True)
+            st.caption("🟢 Adequate · 🟡 Below optimal · 🔴 Critical deficit · ⬛ Off-season  ╌╌  Dashed line = crop water need")
+        with c_insight:
+            st.markdown("**What this tells you**")
             st.markdown(
                 f"Over the last 6 months, **{deficit_months}** active growing "
-                f"month{'s' if deficit_months != 1 else ''} received less than 80% of "
-                f"what **{crop_choice}** required.\n\n"
-                f"A bar touching or exceeding the dashed blue line means that "
-                f"month was adequate. Bars well below it represent water stress periods.")
+                f"{'month' if deficit_months == 1 else 'months'} received less than 80% of "
+                f"what your **{crop_choice}** needed.\n\n"
+                f"The worst month was **{worst_month_name}**, which delivered only "
+                f"**{worst_pct:.0f}%** of the required rainfall.\n\n"
+                f"A bar touching or crossing the dashed green line means that month's rainfall "
+                f"was sufficient. Bars well below it represent water stress periods your crop had to endure."
+            )
             if deficit_months >= 2:
-                st.error(f"âš ï¸ {deficit_months} months below normal â€” cumulative stress is high.")
+                st.error(f"⚠️ {deficit_months} months of deficit — cumulative stress is high.")
             elif deficit_months == 1:
-                st.warning("One below-normal month detected.")
+                st.warning("One below-normal month detected. Watch the next rainfall closely.")
             else:
-                st.success("Rainfall broadly adequate across recent months.")
-            st.markdown("</div>", unsafe_allow_html=True)
+                st.success("Rainfall has been broadly adequate across recent months.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # â”€â”€ Water balance chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── SECTION 2: Water balance ─────────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec'>Cumulative Water Balance â€” last 90 days (Rain âˆ’ Evaporation)</div>", unsafe_allow_html=True)
-        c3, c4 = st.columns([3, 2])
-        with c3:
+        st.subheader("Cumulative Water Balance — Last 90 Days")
+        c_chart2, c_insight2 = st.columns([3, 2])
+        with c_chart2:
             fig_wb = _water_balance_chart(df_weather)
             st.pyplot(fig_wb, use_container_width=True); plt.close(fig_wb)
-            st.caption("ERA5 Penman-Monteith ETâ‚€. Orange shading = moisture deficit zone.")
-        with c4:
-            st.markdown("<div class='insight'>", unsafe_allow_html=True)
+            st.caption("Daily rainfall minus evaporation (ERA5 Penman-Monteith ET₀), cumulated over 90 days.")
+        with c_insight2:
+            st.markdown("**Reading the balance**")
             st.markdown(
-                f"**{precip_90:.0f} mm** rain fell over 90 days.  \n"
-                f"Evaporation demanded **{et0_90:.0f} mm**.  \n"
-                f"Net deficit: **{deficit_90:.0f} mm**  \n\n"
-                f"Balance trend: **{trend}**. "
-                f"The line moving downward means more water is leaving than arriving.")
-            if deficit_90 > 150: st.error("Severe deficit. Irrigation critical.")
-            elif deficit_90 > 60: st.warning("Moderate deficit building.")
-            else: st.success("Balance within manageable range.")
-            st.markdown("</div>", unsafe_allow_html=True)
+                f"Total rainfall over 90 days: **{total_rain_90:.0f} mm**  \n"
+                f"Total evaporation demand: **{total_et0_90:.0f} mm**  \n"
+                f"Net moisture deficit: **{cum_deficit_90:.0f} mm**\n\n"
+                f"The balance is currently **{trend_dir}** — "
+                f"the line moving downward means more water is leaving the soil than arriving. "
+                f"A balance consistently below zero means your crop's roots have less water available "
+                f"each week."
+            )
+            if cum_deficit_90 > 150:
+                st.error("Severe moisture deficit. Irrigation is critical.")
+            elif cum_deficit_90 > 60:
+                st.warning("Moderate deficit building. Consider supplementary water.")
+            else:
+                st.success("Water balance is within manageable range.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # â”€â”€ Temperature + Rain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        ct, cr = st.columns(2)
-        with ct:
+        # ── SECTION 3: Temperature + Rain side-by-side ───────────────────
+        col_t_chart, col_r_chart = st.columns(2)
+
+        with col_t_chart:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.markdown("<div class='sec'>Temperature â€” 90 days</div>", unsafe_allow_html=True)
+            st.subheader("Temperature — 90 Days")
             fig_t, ax_t = plt.subplots(figsize=(5, 2.4), facecolor="none")
-            ax_t.plot(df90["date"], df90["temp_c"], color="#F0883E", linewidth=1.5, zorder=3)
-            ax_t.axhspan(t_lo, t_hi, alpha=0.1, color="#3FB950", label=f"Optimal {t_lo}â€“{t_hi}Â°C", zorder=2)
+            ax_t.plot(df90["date"], df90["temp_c"], color="#f87171", linewidth=1.5, zorder=3)
+            ax_t.axhspan(t_lo, t_hi, alpha=0.10, color="#38ef7d",
+                         label=f"Optimal {t_lo}–{t_hi}°C", zorder=2)
             ax_t.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
             ax_t.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
-            _ax(ax_t)
-            ax_t.set_ylabel("Â°C", color="#484F58", fontsize=8)
-            ax_t.legend(facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7)
+            _ax_style(ax_t)
+            ax_t.set_ylabel("°C", color="#94a3b8", fontsize=8)
+            ax_t.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
             st.pyplot(fig_t, use_container_width=True); plt.close(fig_t)
-            st.caption(f"**{hot_days}** days above the {t_hi}Â°C optimum." if hot_days > 5
-                       else "Temperature stayed mostly within optimal range.")
+            heat_note = (f"🌡️ **{days_above_opt} days** above the {t_hi}°C optimum — "
+                         f"elevated evaporation stress." if days_above_opt > 5 else
+                         f"Temperature has stayed mostly within the optimal range for {crop_choice}.")
+            st.caption(heat_note)
             st.markdown("</div>", unsafe_allow_html=True)
-        with cr:
+
+        with col_r_chart:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
-            st.markdown("<div class='sec'>Daily Rainfall â€” 90 days</div>", unsafe_allow_html=True)
+            st.subheader("Daily Rain — 90 Days")
             fig_r, ax_r = plt.subplots(figsize=(5, 2.4), facecolor="none")
-            ax_r.bar(df90["date"], df90["precip_mm"], color="#58A6FF", alpha=0.75, width=0.9, zorder=2)
-            ax_r.axhline(cal["daily_demand_mm"], color="#3FB950", linestyle="--",
+            ax_r.bar(df90["date"], df90["precip_mm"], color="#3b82f6", alpha=0.72, width=0.9, zorder=2)
+            ax_r.axhline(cal["daily_demand_mm"], color="#38ef7d", linestyle="--",
                          linewidth=1.3, label=f"Daily need ({cal['daily_demand_mm']} mm)", zorder=3)
             ax_r.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
             ax_r.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
-            _ax(ax_r)
-            ax_r.set_ylabel("mm", color="#484F58", fontsize=8)
-            ax_r.legend(facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7)
+            _ax_style(ax_r)
+            ax_r.set_ylabel("mm", color="#94a3b8", fontsize=8)
+            ax_r.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
             st.pyplot(fig_r, use_container_width=True); plt.close(fig_r)
-            st.caption(f"**{dry_days}** days with less than 1 mm of rain in the last 90 days.")
+            st.caption(f"**{dry_days_90}** days with less than 1 mm of rain in the last 90 days.")
             st.markdown("</div>", unsafe_allow_html=True)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# TAB 2: 14-DAY FORECAST
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 3: 14-DAY FORECAST
+# ═══════════════════════════════════════════════════════════════════════════
 with tab_fc:
     if df_forecast is None or df_forecast.empty:
         st.warning("Forecast data unavailable. Check internet connection.")
     else:
-        fc_precip  = float(df_forecast["precip_mm"].sum())
-        fc_et0     = float(df_forecast["et0_mm"].sum())
+        fc_precip = float(df_forecast["precip_mm"].sum())
+        fc_et0    = float(df_forecast["et0_mm"].sum())
         fc_deficit = max(0.0, fc_et0 - fc_precip)
         fc_needed  = cal["daily_demand_mm"] * len(df_forecast)
         fc_pct     = min(150, (fc_precip / (fc_needed + 1e-6)) * 100)
+
+        # ── Pre-compute forecast insights ────────────────────────────────
         good_days  = int((df_forecast["precip_mm"] >= cal["daily_demand_mm"]).sum())
         ok_days    = int(((df_forecast["precip_mm"] >= cal["daily_demand_mm"]*0.5) &
                           (df_forecast["precip_mm"] < cal["daily_demand_mm"])).sum())
         bad_days   = len(df_forecast) - good_days - ok_days
+        best_idx   = df_forecast["precip_mm"].idxmax()
+        best_day   = df_forecast.loc[best_idx, "date"].strftime("%b %d")
+        best_rain  = float(df_forecast.loc[best_idx, "precip_mm"])
         cum_fc     = df_forecast["water_balance_mm"].cumsum()
-        fc_trend   = ("improving ðŸ“ˆ" if float(cum_fc.iloc[-1]) > float(cum_fc.iloc[len(cum_fc)//2])
-                      else "worsening ðŸ“‰")
+        fc_trend   = ("improving 📈" if float(cum_fc.iloc[-1]) > float(cum_fc.iloc[len(cum_fc)//2])
+                      else "worsening 📉")
 
+        # ── Day-by-day chart + analysis ───────────────────────────────────
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec'>14-Day Rainfall Forecast</div>", unsafe_allow_html=True)
-        cf1, cf2 = st.columns([3, 2])
-        with cf1:
+        st.subheader("14-Day Rainfall Forecast")
+        c_fc, c_fc_txt = st.columns([3, 2])
+        with c_fc:
             st.pyplot(_forecast_chart(df_forecast, cal["daily_demand_mm"]),
                       use_container_width=True)
-            st.caption("ðŸŸ¢ Meets daily need Â· ðŸŸ¡ Partial Â· ðŸ”´ Near-dry  â•Œ Dashed = daily crop need")
-        with cf2:
-            st.markdown("<div class='insight'>", unsafe_allow_html=True)
-            pct_c = "#3FB950" if fc_pct >= 80 else ("#E3B341" if fc_pct >= 50 else "#F0883E")
+            st.caption("🟢 Meets daily crop need · 🟡 Partial (50–100%) · 🔴 Near-zero rain  ╌╌  Dashed = daily crop need")
+        with c_fc_txt:
+            st.markdown("**Forecast summary**")
+            pct_col = "#22c55e" if fc_pct >= 80 else ("#f59e0b" if fc_pct >= 50 else "#ef4444")
             st.markdown(
                 f"Forecast rain: **{fc_precip:.0f} mm**  \n"
                 f"Crop water need: **{fc_needed:.0f} mm**  \n"
-                f"<span style='color:{pct_c};font-weight:600'>Needs covered: {fc_pct:.0f}%</span>\n\n"
-                f"ðŸŸ¢ **{good_days}** adequate days  \n"
-                f"ðŸŸ¡ **{ok_days}** partial days  \n"
-                f"ðŸ”´ **{bad_days}** near-dry days  \n\n"
-                f"Balance trend: **{fc_trend}**",
+                f"Needs covered: <span style='color:{pct_col};font-weight:700'>{fc_pct:.0f}%</span>",
                 unsafe_allow_html=True)
-            if fc_pct < 50: st.error("Forecast does not cover crop needs. Arrange irrigation.")
-            elif fc_pct < 80: st.warning("Partial coverage expected.")
-            else: st.success("Forecast broadly meets crop water requirements.")
-            st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec'>Cumulative Water Balance â€” Next 14 Days</div>", unsafe_allow_html=True)
-        cc1, cc2 = st.columns([3, 2])
-        with cc1:
-            fig_cfc, ax_cfc = plt.subplots(figsize=(6, 2.4), facecolor="none")
-            ax_cfc.plot(df_forecast["date"], cum_fc, color="#8B949E", linewidth=1.5, zorder=3)
-            ax_cfc.fill_between(df_forecast["date"], cum_fc, 0,
-                                where=(cum_fc < 0), color="#F0883E", alpha=0.2, label="Deficit", zorder=2)
-            ax_cfc.fill_between(df_forecast["date"], cum_fc, 0,
-                                where=(cum_fc >= 0), color="#3FB950", alpha=0.15, label="Surplus", zorder=2)
-            ax_cfc.axhline(0, color="#2D3741", linewidth=1)
-            ax_cfc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-            ax_cfc.xaxis.set_major_locator(mdates.DayLocator(interval=3))
-            _ax(ax_cfc)
-            ax_cfc.set_ylabel("mm", color="#484F58", fontsize=8)
-            ax_cfc.legend(facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E", fontsize=7)
-            st.pyplot(fig_cfc, use_container_width=True); plt.close(fig_cfc)
-        with cc2:
-            st.markdown("<div class='insight'>", unsafe_allow_html=True)
-            final = float(cum_fc.iloc[-1])
-            st.markdown(f"By day 14, net water balance: **{final:+.0f} mm**")
-            if final < -80:
-                st.markdown(f"The forecast **adds more drought stress**. Without irrigation, {crop_choice} yield will continue to deteriorate.")
-            elif final < 0:
-                st.markdown("Evaporation outpaces rainfall but the deficit is modest.")
+            st.markdown("---")
+            st.markdown(
+                f"🟢 **{good_days}** adequate rain days  \n"
+                f"🟡 **{ok_days}** partial rain days  \n"
+                f"🔴 **{bad_days}** near-dry days  \n\n"
+                f"Best day: **{best_day}** ({best_rain:.1f} mm)  \n"
+                f"Balance trend: **{fc_trend}**")
+            if fc_pct < 50:
+                st.error("Forecast does not cover crop needs. Arrange irrigation.")
+            elif fc_pct < 80:
+                st.warning("Partial coverage. Monitor soil moisture closely.")
             else:
-                st.markdown("Forecast conditions offer **some relief** â€” incoming rain should partially replenish soil moisture.")
-            st.markdown("</div>", unsafe_allow_html=True)
+                st.success("Forecast should broadly meet crop water requirements.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# TAB 3: METHODOLOGY
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        # ── Cumulative balance + analysis ─────────────────────────────────
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Cumulative Water Balance — Next 14 Days")
+        c_cum, c_cum_txt = st.columns([3, 2])
+        with c_cum:
+            fig_cumfc, ax_cumfc = plt.subplots(figsize=(6, 2.4), facecolor="none")
+            ax_cumfc.plot(df_forecast["date"], cum_fc, color="#94a3b8", linewidth=1.6, zorder=3)
+            ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
+                                  where=(cum_fc < 0), color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
+            ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
+                                  where=(cum_fc >= 0), color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
+            ax_cumfc.axhline(0, color="white", linewidth=0.5, alpha=0.3)
+            ax_cumfc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+            ax_cumfc.xaxis.set_major_locator(mdates.DayLocator(interval=3))
+            _ax_style(ax_cumfc)
+            ax_cumfc.set_ylabel("mm", color="#94a3b8", fontsize=8)
+            ax_cumfc.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+            st.pyplot(fig_cumfc, use_container_width=True); plt.close(fig_cumfc)
+            st.caption("Cumulative (rain − evaporation) over the forecast window.")
+        with c_cum_txt:
+            st.markdown("**What this means**")
+            final_bal = float(cum_fc.iloc[-1])
+            st.markdown(
+                f"By day 14 the forecast adds a net water balance of **{final_bal:+.0f} mm**.\n\n")
+            if final_bal < -80:
+                st.markdown(
+                    f"The outlook **adds more drought stress**. Without irrigation, "
+                    f"**{crop_choice}** yield potential will continue to deteriorate.")
+            elif final_bal < 0:
+                st.markdown(
+                    "Evaporation outpaces rainfall but the deficit is modest. "
+                    "Soil reserves may buffer the impact short-term.")
+            else:
+                st.markdown(
+                    "Forecast conditions offer **some relief** — incoming rain should "
+                    "partially replenish soil moisture.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 4: METHODOLOGY
+# ═══════════════════════════════════════════════════════════════════════════
 with tab_about:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Data Sources")
+    st.subheader("Data Sources — All Real, All Free")
     st.markdown("""
-| Source | Variables | Cost |
-|--------|-----------|------|
-| **Open-Meteo ERA5 archive** | Daily rainfall, mean temperature, FAO-56 ETâ‚€ | Free, no key |
-| **Open-Meteo Forecast** | 14-day precipitation, temperature, ETâ‚€ | Free, no key |
-| **NOAA CPC NINO3.4** | Monthly Oceanic NiÃ±o Index (El NiÃ±o intensity) | Free, no key |
+| Source | Variable | Update |
+|--------|----------|--------|
+| **Open-Meteo ERA5 archive** | Daily rainfall (mm), mean temperature (°C), FAO-56 reference evapotranspiration ET₀ (mm) | Daily, 5-day lag |
+| **Open-Meteo Forecast** | 14-day precipitation, temperature, ET₀ | Daily |
+| **NOAA CPC NINO3.4** | Monthly SST anomaly (El Niño / La Niña intensity) | Monthly |
 
-No simulations anywhere â€” if a source is offline the dashboard shows an error.
+All three sources are free and require no registration or API key.
+No simulated or fallback values are shown — if a data source is offline the dashboard shows an error.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Risk Score Methodology")
     st.markdown(r"""
-The **0â€“100 drought risk score** combines four real-data components:
+The 0–100 drought risk score combines four components:
 
-**1. SPI-3** (McKee et al. 1993) â€” Standardised Precipitation Index computed from the full ERA5 daily rainfall history. SPI-3 < â€“1.0 = drought; < â€“2.0 = severe. *Up to 40 pts.*
+**1. SPI-3 — Standardised Precipitation Index (McKee et al. 1993)**
+Fits the full historical daily precipitation series to a two-parameter Gamma distribution,
+then converts to standard normal probabilities. SPI-3 < –1.0 = drought onset; < –2.0 = severe drought.
+*Contributes up to 40 points.*
 
-**2. Cumulative Water Deficit P âˆ’ ETâ‚€** â€” Total ERA5 rainfall minus FAO-56 Penman-Monteith evapotranspiration over 90 days. A large negative balance = crops have depleted available soil water. *Up to 40 pts.*
+**2. Cumulative Water Deficit P − ET₀ (FAO-56)**
+Total rainfall minus reference evapotranspiration over the last 90 days.
+ET₀ is computed by Open-Meteo using the Penman-Monteith equation from ERA5 radiation,
+wind, humidity, and temperature — no approximations.
+*Contributes up to 40 points.*
 
-**3. Temperature stress** â€” Mean temperature above 25 Â°C accelerates evaporation. *Up to 20 pts.*
+**3. Temperature stress**
+Mean temperature above 25 °C accelerates soil drying and increases crop transpiration demand.
+*Contributes up to 20 points.*
 
-**4. ENSO amplification** (Ropelewski & Halpert 1987) â€” El NiÃ±o (NINO3.4 â‰¥ +0.5 Â°C) multiplies the score up to Ã—1.5, reflecting the known teleconnection between Pacific SST and suppressed rainfall in Southern Africa, South Asia, and Australia.
+**4. ENSO amplification (Ropelewski & Halpert 1987)**
+If NINO3.4 ≥ +0.5 °C (El Niño developing), the score is multiplied up to ×1.5,
+reflecting the teleconnection between Pacific SST anomalies and suppressed monsoon rainfall
+over Southern Africa, South Asia, and Australia.
 
-**5. Crop stage weighting** â€” Flowering, tasseling, panicle initiation, and grain-filling stages are multiplied Ã—1.35, because water stress during pollination causes irreversible yield loss.
+**5. Crop stage weighting**
+Flowering, tasseling, panicle initiation, and grain-filling stages are amplified ×1.35,
+because water stress during pollination causes irreversible yield loss.
+
+**6. Off-season dampener**
+During fallow/dormant months the score is reduced ×0.25 — dry conditions are expected
+and do not represent crop stress.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("ðŸ““ Saved Assessments")
+    st.subheader("📓 Saved Assessments")
     try:
         init_db()
         conn = get_db_connection()
@@ -1498,10 +1284,10 @@ The **0â€“100 drought risk score** combines four real-data components:
             "FROM self_correction_journal ORDER BY id DESC LIMIT 20", conn)
         conn.close()
         if df_j.empty:
-            st.info("No saved assessments yet. Use the Export Report button.")
+            st.info("No saved assessments yet. Use the 'Save' button in Farm Status.")
         else:
             for _, row in df_j.iterrows():
-                st.markdown(f"**{row['journal_date']} â€” {row['target_district']}**")
+                st.markdown(f"**{row['journal_date']} — {row['target_district']}**")
                 st.caption(row["agent_reasoning"])
                 st.markdown("---")
     except Exception as e:
