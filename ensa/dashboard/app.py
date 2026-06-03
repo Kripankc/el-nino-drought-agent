@@ -19,7 +19,9 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import calendar
 
-from ensa.ingest.openmeteo import fetch_weather, fetch_forecast, fetch_climatology
+from ensa.ingest.openmeteo import (
+    fetch_weather, fetch_forecast, fetch_climatology, fetch_soil_moisture,
+)
 from ensa.ingest.enso import fetch_current_oni, fetch_oni_history
 from ensa.analysis.elnino import seasonal_elnino_comparison
 from ensa.agent.brain import (
@@ -720,6 +722,11 @@ def _cached_oni_history():
     return fetch_oni_history()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_soil(lat, lon):
+    return fetch_soil_moisture(lat, lon, days_back=120)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -789,7 +796,7 @@ st.sidebar.markdown(
 # LOAD DATA
 # ─────────────────────────────────────────────────────────────────────────────
 _lat_r, _lon_r = round(lat, 3), round(lon, 3)
-df_weather = df_forecast = None
+df_weather = df_forecast = df_soil = None
 weather_error = None
 
 with st.spinner("Fetching real weather data from Open-Meteo ERA5…"):
@@ -801,6 +808,10 @@ with st.spinner("Fetching real weather data from Open-Meteo ERA5…"):
         df_forecast = _cached_forecast(_lat_r, _lon_r)
     except Exception:
         pass
+    try:
+        df_soil = _cached_soil(_lat_r, _lon_r)
+    except Exception:
+        df_soil = None
     oni = _cached_enso()
 
 data_ok = df_weather is not None and not df_weather.empty
@@ -941,10 +952,10 @@ with tab_status:
     st.pyplot(_crop_calendar_strip(cal, a_month), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── 4 METRIC CARDS ──────────────────────────────────────────────────
+    # ── 5 METRIC CARDS ──────────────────────────────────────────────────
     opt_t_lo, opt_t_hi = cal["optimal_temp"]
     st.markdown("### Key Indicators (last 90 days — real ERA5 data)")
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
 
     def _kpi(col, label, val, sub, ok):
         dot = "🟢" if ok else "🔴"
@@ -952,18 +963,37 @@ with tab_status:
                      f"<div class='kpi-value'>{val}</div>"
                      f"<div class='kpi-sub'>{dot} {sub}</div></div>", unsafe_allow_html=True)
 
-    _kpi(m1,"Rainfall (90d)", f"{precip_90:.0f} mm",
+    _kpi(m1, "Rainfall (90d)", f"{precip_90:.0f} mm",
          f"Need: {cal['daily_demand_mm']*90:.0f} mm for full season",
          precip_90 >= cal["daily_demand_mm"] * 90 * 0.7)
-    _kpi(m2,"Water Deficit (90d)", f"{deficit_90:.0f} mm",
+    _kpi(m2, "Water Deficit (90d)", f"{deficit_90:.0f} mm",
          f"Evaporation demand: {et0_90:.0f} mm",
          deficit_90 < 100)
-    _kpi(m3,"Mean Temperature", f"{temp_90:.1f} °C",
+    _kpi(m3, "Mean Temperature", f"{temp_90:.1f} °C",
          f"Optimal: {opt_t_lo}–{opt_t_hi}°C",
          opt_t_lo <= temp_90 <= opt_t_hi + 2)
-    _kpi(m4,"SPI-3 Index", f"{assessment['spi3']:+.2f}",
+    _kpi(m4, "SPI-3 Index", f"{assessment['spi3']:+.2f}",
          "< –1.0 = drought · < –2.0 = severe",
          assessment["spi3"] >= -1.0)
+
+    # Soil moisture KPI — uses real ERA5 if available, otherwise a friendly skip
+    if df_soil is not None and not df_soil.empty:
+        sm_recent = df_soil.tail(7)
+        sm_root_recent = float(sm_recent["soil_root"].mean())
+        # historical median for this layer over the full 120-day window for context
+        sm_root_hist_med = float(df_soil["soil_root"].median())
+        sm_delta_pct = ((sm_root_recent - sm_root_hist_med) / (sm_root_hist_med + 1e-6)) * 100
+        sm_ok = sm_root_recent >= 0.18    # rough root-zone threshold (volumetric)
+        _kpi(m5, "Soil Moisture (7-day)", f"{sm_root_recent*100:.0f}%",
+             f"Root-zone 7-28 cm · {sm_delta_pct:+.0f}% vs 120-day median",
+             sm_ok)
+    else:
+        m5.markdown(
+            "<div class='card' style='opacity:.55'>"
+            "<div class='kpi-label'>Soil Moisture</div>"
+            "<div class='kpi-value' style='font-size:.95rem;color:#484F58'>Unavailable</div>"
+            "<div class='kpi-sub'>ERA5 soil layer fetch failed</div></div>",
+            unsafe_allow_html=True)
 
     # ── RECOMMENDATIONS ──────────────────────────────────────────────────
     st.markdown("### What to do")
@@ -1135,6 +1165,57 @@ with tab_history:
             ax_r.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
             st.pyplot(fig_r, use_container_width=True); plt.close(fig_r)
             st.caption(f"**{dry_days_90}** days with less than 1 mm of rain in the last 90 days.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Soil moisture section ───────────────────────────────────────
+        if df_soil is not None and not df_soil.empty:
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+            st.subheader("Soil Moisture — last 120 days (ERA5 volumetric)")
+            c_sm_chart, c_sm_txt = st.columns([3, 2])
+
+            with c_sm_chart:
+                fig_sm, ax_sm = plt.subplots(figsize=(8, 2.6), facecolor="none")
+                ax_sm.plot(df_soil["date"], df_soil["soil_surface"] * 100,
+                           color="#fbbf24", linewidth=1.5, label="Surface 0–7 cm", zorder=2)
+                ax_sm.plot(df_soil["date"], df_soil["soil_root"] * 100,
+                           color="#38bdf8", linewidth=1.7, label="Root-zone 7–28 cm", zorder=3)
+                # Reference threshold band — below ~18% root-zone moisture is dryland stress
+                ax_sm.axhspan(0, 18, alpha=0.07, color="#ef4444",
+                              label="Root-zone stress (< 18%)")
+                ax_sm.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+                ax_sm.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
+                _ax_style(ax_sm)
+                ax_sm.set_ylabel("% volumetric", color="#94a3b8", fontsize=8)
+                ax_sm.legend(facecolor="#0d1117", edgecolor="#1e293b",
+                             labelcolor="#cbd5e1", fontsize=7, loc="upper right")
+                st.pyplot(fig_sm, use_container_width=True); plt.close(fig_sm)
+                st.caption(
+                    "ERA5 volumetric soil moisture (fraction of pore space filled with water). "
+                    "Below 18% in the root zone is generally moisture-stress territory.")
+
+            with c_sm_txt:
+                sm_recent_7d = float(df_soil.tail(7)["soil_root"].mean())
+                sm_recent_30d = float(df_soil.tail(30)["soil_root"].mean())
+                sm_med_120d = float(df_soil["soil_root"].median())
+                trend = "drying 📉" if sm_recent_7d < sm_recent_30d else "wetting 📈"
+                stress_days = int((df_soil["soil_root"] < 0.18).sum())
+                st.markdown("<div class='insight'>", unsafe_allow_html=True)
+                st.markdown(
+                    f"**Root-zone (7–28 cm) — the layer your crop drinks from**  \n"
+                    f"7-day average:  **{sm_recent_7d*100:.0f}%**  \n"
+                    f"30-day average: **{sm_recent_30d*100:.0f}%**  \n"
+                    f"120-day median: **{sm_med_120d*100:.0f}%**  \n\n"
+                    f"Trend over last week: **{trend}**  \n"
+                    f"**{stress_days}** days were below the 18% stress threshold "
+                    f"in the last 120 days."
+                )
+                if sm_recent_7d < 0.15:
+                    st.error("Root zone is severely depleted. Crop is at wilting point.")
+                elif sm_recent_7d < 0.18:
+                    st.warning("Root zone is approaching stress threshold.")
+                else:
+                    st.success("Root-zone moisture is adequate for crop uptake.")
+                st.markdown("</div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
 

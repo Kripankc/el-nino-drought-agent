@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 _ARCHIVE_URL  = "https://archive-api.open-meteo.com/v1/archive"
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _DAILY_VARS   = "precipitation_sum,temperature_2m_mean,et0_fao_evapotranspiration"
+# Hourly ERA5 soil moisture (volumetric, 0-1) for two root zones
+_HOURLY_SOIL  = "soil_moisture_0_to_7cm,soil_moisture_7_to_28cm"
 
 
 def fetch_weather(lat: float, lon: float, days_back: int = 400) -> pd.DataFrame:
@@ -45,6 +47,38 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     r = requests.get(_FORECAST_URL, params=params, timeout=25)
     r.raise_for_status()
     return _parse(r.json()["daily"])
+
+
+def fetch_soil_moisture(lat: float, lon: float, days_back: int = 120) -> pd.DataFrame:
+    """
+    Fetches real ERA5 volumetric soil moisture (0-1) for two depth layers
+    and returns daily means. Surface = 0-7 cm, Root-zone = 7-28 cm.
+    Returns DataFrame: date, soil_surface, soil_root.
+    """
+    end   = datetime.utcnow() - timedelta(days=5)
+    start = end - timedelta(days=days_back)
+    params = {
+        "latitude":   lat,
+        "longitude":  lon,
+        "start_date": start.strftime("%Y-%m-%d"),
+        "end_date":   end.strftime("%Y-%m-%d"),
+        "hourly":     _HOURLY_SOIL,
+        "timezone":   "UTC",
+    }
+    r = requests.get(_ARCHIVE_URL, params=params, timeout=30)
+    r.raise_for_status()
+    h = r.json()["hourly"]
+    df = pd.DataFrame({
+        "datetime":     pd.to_datetime(h["time"]).tz_localize(None),
+        "soil_surface": pd.Series(h["soil_moisture_0_to_7cm"], dtype=float).values,
+        "soil_root":    pd.Series(h["soil_moisture_7_to_28cm"], dtype=float).values,
+    })
+    df["date"] = df["datetime"].dt.normalize()
+    daily = df.groupby("date").agg(
+        soil_surface=("soil_surface", "mean"),
+        soil_root=("soil_root", "mean"),
+    ).reset_index()
+    return daily
 
 
 def fetch_climatology(lat: float, lon: float, start_year: int = 1985) -> pd.DataFrame:
