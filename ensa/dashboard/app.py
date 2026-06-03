@@ -73,7 +73,7 @@ _REGION_BOXES = [
     ("Nepal",           26.0, 30.5,  80.0,  88.5),
     ("Bangladesh",      20.5, 26.7,  88.0,  92.7),
     ("Sri Lanka",        5.9,  9.9,  79.5,  82.0),
-    ("Pakistan",        23.0, 37.5,  60.0,  77.5),
+    ("Pakistan",        23.0, 37.5,  60.0,  75.0),
     ("Myanmar",          9.5, 28.5,  92.0, 101.0),
     ("Southeast Asia", -10.0, 28.0,  95.0, 141.0),
     ("India",            8.0, 37.0,  68.0,  97.0),
@@ -501,7 +501,31 @@ with tab_status:
     else:
         df_slice = df_weather[df_weather["date"] <= a_dt]
 
-    assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
+    # In past-date mode, score amplification & summary should use the ENSO state
+    # at THAT TIME, not today's. Look up the historical ONI for the picked month.
+    score_oni_v = oni_v
+    score_oni   = oni
+    if is_past_mode:
+        try:
+            _oni_hist_for_past = _cached_oni_history()
+            _past_oni = _oni_hist_for_past.get((a_dt.year, a_dt.month))
+            if _past_oni is None:
+                # try previous month if very early in current month
+                _past_oni = _oni_hist_for_past.get((a_dt.year, max(1, a_dt.month - 1)))
+            if _past_oni is not None:
+                from ensa.ingest.enso import classify_oni
+                score_oni_v = float(round(_past_oni, 2))
+                score_oni = {
+                    "value": score_oni_v,
+                    "phase": classify_oni(_past_oni),
+                    "year": a_dt.year, "month": a_dt.month,
+                    "month_name": a_dt.strftime("%B"),
+                    "source": "NOAA CPC NINO3.4 (historical)",
+                }
+        except Exception:
+            pass
+
+    assessment = compute_drought_score(df_slice, score_oni_v, crop_stage, is_active)
     score  = assessment["score"]
     level  = assessment["alert_level"]
     color  = assessment["alert_color"]
@@ -530,8 +554,13 @@ with tab_status:
 
     with col_summary:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        summary_text = generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+        summary_text = generate_summary(assessment, crop_choice, crop_stage, score_oni["phase"],
                                         st.session_state.preset_name)
+        if is_past_mode and score_oni is not oni:
+            st.caption(
+                f"📅 As-of {assessment_date.strftime('%b %Y')}: "
+                f"NINO3.4 was {score_oni['value']:+.2f}°C ({score_oni['phase']})."
+            )
         st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
                     unsafe_allow_html=True)
 
@@ -693,7 +722,7 @@ with tab_status:
                      f"<div class='kpi-sub'>{dot} {sub}</div></div>", unsafe_allow_html=True)
 
     _kpi(m1, "Rainfall (90d)", f"{precip_90:.0f} mm",
-         f"Need: {cal['daily_demand_mm']*90:.0f} mm for full season",
+         f"Need over 90 days: {cal['daily_demand_mm']*90:.0f} mm",
          precip_90 >= cal["daily_demand_mm"] * 90 * 0.7)
     _kpi(m2, "Water Deficit (90d)", f"{deficit_90:.0f} mm",
          f"Evaporation demand: {et0_90:.0f} mm",
@@ -756,9 +785,9 @@ with tab_status:
                           (datetime.now().strftime("%Y-%m-%d"), "Manual",
                            st.session_state.preset_name, assessment["spi3"],
                            -deficit_90/100, abs(score-50),
-                           generate_summary(assessment, crop_choice, crop_stage, oni["phase"],
+                           generate_summary(assessment, crop_choice, crop_stage, score_oni["phase"],
                                             st.session_state.preset_name),
-                           f'{{"score":{score},"level":"{level}","oni":{oni_v}}}'))
+                           f'{{"score":{score},"level":"{level}","oni":{score_oni_v}}}'))
                 conn.commit(); conn.close()
                 st.success("Saved!")
             except Exception as e:
