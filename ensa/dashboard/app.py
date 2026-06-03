@@ -1419,7 +1419,7 @@ with tab_elnino:
                          label=f"Neutral-year avg ({ph_neu['mean_precip']:.0f} mm)", zorder=3)
         ax_y.set_xticks(years)
         ax_y.set_xticklabels([str(y) for y in years], rotation=45, ha="right", fontsize=7)
-        _ax(ax_y, xrot=45)
+        _ax_style(ax_y, xlabel_rotation=45)
         ax_y.set_ylabel("mm per season", color="#484F58", fontsize=8)
         from matplotlib.patches import Patch
         ax_y.legend(handles=[
