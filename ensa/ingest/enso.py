@@ -44,6 +44,33 @@ def fetch_current_oni() -> dict:
         return _fallback()
 
 
+def fetch_oni_history() -> dict:
+    """
+    Returns the full NINO3.4 monthly anomaly record from NOAA CPC.
+    Result: { (year, month): anomaly_float, ... }  plus key "_source".
+    Empty dict (with _source flag) on failure.
+    """
+    try:
+        r = requests.get(_NINO34_URL, timeout=20)
+        r.raise_for_status()
+        records = _parse_nino34(r.text)
+        hist = {(y, m): a for (y, m, a) in records}
+        hist["_source"] = "NOAA CPC NINO3.4"
+        return hist
+    except Exception as e:
+        print(f"[ENSO] Failed to fetch ONI history: {e}")
+        return {"_source": "offline"}
+
+
+def classify_oni(oni: float) -> str:
+    """Public classifier: returns 'El Nino' | 'La Nina' | 'Neutral'."""
+    if oni >= 0.5:
+        return "El Nino"
+    if oni <= -0.5:
+        return "La Nina"
+    return "Neutral"
+
+
 def _parse_nino34(text: str) -> list:
     records = []
     for line in text.strip().splitlines():
