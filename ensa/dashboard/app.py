@@ -24,6 +24,7 @@ from ensa.ingest.openmeteo import (
 )
 from ensa.ingest.enso import fetch_current_oni, fetch_oni_history
 from ensa.analysis.elnino import seasonal_elnino_comparison
+from ensa.analysis.crop_calendars import CROP_CALENDARS
 from ensa.agent.brain import (
     compute_drought_score,
     generate_summary,
@@ -81,6 +82,7 @@ _REGION_BOXES = [
     ("Southern Africa",-35.0,-10.0,  10.0,  40.0),
     ("Australia",      -44.0,-10.0, 112.0, 154.0),
     ("South America",  -55.0, 12.0, -82.0, -34.0),
+    ("North America",   24.0, 60.0,-125.0, -60.0),
     ("North Africa",    15.0, 38.0, -18.0,  40.0),
     ("Central Asia",    36.0, 56.0,  45.0,  90.0),
     ("Europe",          36.0, 72.0, -12.0,  45.0),
@@ -96,435 +98,8 @@ def _detect_region(lat, lon):
 def _is_active(cal, month):
     s, e = cal["start"], cal["end"]
     return (s <= month <= e) if s <= e else (month >= s or month <= e)
+# CROP_CALENDARS is imported from ensa.analysis.crop_calendars
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CROP CALENDARS  (literature-backed, no fallback values)
-# daily_demand_mm = average FAO crop water requirement during active season
-# optimal_temp    = (min, max) °C for healthy growth
-# ─────────────────────────────────────────────────────────────────────────────
-CROP_CALENDARS = {
-    "Nepal": {
-        "Kharif Rice": {
-            "start":11,"end":5,"daily_demand_mm":6.0,"optimal_temp":(22,30),
-            "stages":{6:"Nursery",7:"Transplanting",8:"Tillering",
-                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
-                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-        "Winter Wheat (Rabi)": {
-            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(10,22),
-            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
-                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Spring Maize": {
-            "start":3,"end":8,"daily_demand_mm":4.5,"optimal_temp":(18,26),
-            "stages":{3:"Planting",4:"Emergence",5:"Vegetative",
-                      6:"Tasseling (Critical)",7:"Grain Filling",8:"Harvesting",
-                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
-        },
-        "Finger Millet": {
-            "start":6,"end":10,"daily_demand_mm":3.5,"optimal_temp":(20,30),
-            "stages":{6:"Planting",7:"Vegetative",8:"Flowering (Critical)",
-                      9:"Grain Filling",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-    },
-    "India": {
-        "Kharif Rice": {
-            "start":6,"end":11,"daily_demand_mm":7.5,"optimal_temp":(25,33),
-            "stages":{6:"Nursery & Transplanting",7:"Tillering",8:"Panicle Initiation",
-                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
-                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-        "Rabi Wheat": {
-            "start":11,"end":4,"daily_demand_mm":4.2,"optimal_temp":(12,22),
-            "stages":{11:"Sowing",12:"Crown Root Initiation",1:"Tillering",
-                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Cotton (Kharif)": {
-            "start":5,"end":12,"daily_demand_mm":5.5,"optimal_temp":(25,35),
-            "stages":{5:"Sowing",6:"Seedling",7:"Squaring",8:"Flowering (Critical)",
-                      9:"Boll Development (Critical)",10:"Boll Opening",11:"Picking",12:"Harvesting",
-                      1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Sugarcane": {
-            "start":2,"end":1,"daily_demand_mm":6.0,"optimal_temp":(24,32),
-            "stages":{2:"Planting",3:"Germination",4:"Tillering",5:"Grand Growth",
-                      6:"Grand Growth",7:"Grand Growth (Critical)",8:"Grand Growth (Critical)",
-                      9:"Maturation",10:"Maturation",11:"Harvesting",12:"Harvesting",1:"Harvesting"},
-        },
-        "Groundnut (Kharif)": {
-            "start":6,"end":10,"daily_demand_mm":4.0,"optimal_temp":(25,35),
-            "stages":{6:"Sowing",7:"Vegetative",8:"Flowering & Pegging (Critical)",
-                      9:"Pod Development (Critical)",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-    },
-    "Pakistan": {
-        "Kharif Cotton": {
-            "start":5,"end":12,"daily_demand_mm":5.5,"optimal_temp":(26,36),
-            "stages":{5:"Sowing",6:"Seedling",7:"Squaring",8:"Flowering (Critical)",
-                      9:"Boll Development (Critical)",10:"Boll Opening",11:"Picking",12:"Harvesting",
-                      1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Rabi Wheat": {
-            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(10,22),
-            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
-                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Kharif Rice (Basmati)": {
-            "start":6,"end":10,"daily_demand_mm":7.0,"optimal_temp":(24,32),
-            "stages":{6:"Nursery",7:"Transplanting",8:"Vegetative",
-                      9:"Flowering (Critical)",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-        "Sugarcane": {
-            "start":3,"end":2,"daily_demand_mm":5.5,"optimal_temp":(22,32),
-            "stages":{3:"Planting",4:"Germination",5:"Tillering",6:"Grand Growth",
-                      7:"Grand Growth (Critical)",8:"Grand Growth (Critical)",9:"Maturation",
-                      10:"Maturation",11:"Harvesting",12:"Harvesting",1:"Harvesting",2:"Harvesting"},
-        },
-    },
-    "Bangladesh": {
-        "Aman Rice (Wet season)": {
-            "start":6,"end":11,"daily_demand_mm":7.0,"optimal_temp":(25,33),
-            "stages":{6:"Nursery",7:"Transplanting",8:"Vegetative",
-                      9:"Panicle Initiation",10:"Flowering (Critical)",11:"Harvesting",
-                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-        "Boro Rice (Dry season)": {
-            "start":12,"end":5,"daily_demand_mm":8.0,"optimal_temp":(20,30),
-            "stages":{12:"Nursery",1:"Transplanting",2:"Vegetative",
-                      3:"Panicle Initiation",4:"Flowering (Critical)",5:"Harvesting",
-                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
-        },
-        "Wheat (Rabi)": {
-            "start":11,"end":4,"daily_demand_mm":3.8,"optimal_temp":(12,22),
-            "stages":{11:"Sowing",12:"Germination",1:"Tillering",
-                      2:"Jointing",3:"Heading & Flowering (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Jute": {
-            "start":3,"end":8,"daily_demand_mm":5.0,"optimal_temp":(24,35),
-            "stages":{3:"Sowing",4:"Seedling",5:"Vegetative",6:"Vegetative",
-                      7:"Flowering",8:"Harvesting",
-                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
-        },
-    },
-    "Myanmar": {
-        "Monsoon Rice": {
-            "start":5,"end":10,"daily_demand_mm":7.0,"optimal_temp":(24,32),
-            "stages":{5:"Nursery",6:"Transplanting",7:"Vegetative",8:"Panicle Initiation",
-                      9:"Flowering (Critical)",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Summer Sesame": {
-            "start":3,"end":7,"daily_demand_mm":3.8,"optimal_temp":(26,35),
-            "stages":{3:"Sowing",4:"Seedling",5:"Vegetative",6:"Flowering (Critical)",7:"Harvesting",
-                      8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
-        },
-    },
-    "Southeast Asia": {
-        "Wet Season Rice": {
-            "start":5,"end":11,"daily_demand_mm":7.0,"optimal_temp":(24,33),
-            "stages":{5:"Nursery",6:"Transplanting",7:"Vegetative",8:"Vegetative",
-                      9:"Flowering (Critical)",10:"Grain Filling",11:"Harvesting",
-                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Cassava": {
-            "start":3,"end":12,"daily_demand_mm":4.0,"optimal_temp":(25,35),
-            "stages":{3:"Planting",4:"Establishment",5:"Vegetative",6:"Vegetative (Critical)",
-                      7:"Tuber Bulking (Critical)",8:"Tuber Bulking",9:"Maturation",
-                      10:"Maturation",11:"Harvest Ready",12:"Harvesting",
-                      1:"Fallow",2:"Fallow"},
-        },
-        "Sugarcane": {
-            "start":1,"end":12,"daily_demand_mm":5.5,"optimal_temp":(24,33),
-            "stages":{1:"Grand Growth",2:"Grand Growth",3:"Grand Growth (Critical)",
-                      4:"Maturation",5:"Harvesting",6:"Planting / Ratoon",
-                      7:"Germination",8:"Tillering",9:"Grand Growth",
-                      10:"Grand Growth (Critical)",11:"Maturation",12:"Harvesting"},
-        },
-    },
-    "China": {
-        "Double-Crop Rice (1st)": {
-            "start":4,"end":8,"daily_demand_mm":6.5,"optimal_temp":(23,30),
-            "stages":{4:"Transplanting",5:"Tillering",6:"Panicle Initiation",
-                      7:"Flowering (Critical)",8:"Harvesting",
-                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Winter Wheat": {
-            "start":10,"end":6,"daily_demand_mm":4.5,"optimal_temp":(10,22),
-            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",
-                      1:"Overwintering",2:"Returning Green",3:"Jointing",
-                      4:"Heading",5:"Flowering (Critical)",6:"Harvesting",
-                      7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-        "Summer Maize": {
-            "start":6,"end":9,"daily_demand_mm":5.0,"optimal_temp":(22,30),
-            "stages":{6:"Planting",7:"Vegetative",8:"Tasseling & Silking (Critical)",
-                      9:"Grain Fill & Harvest",
-                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-    },
-    "East Africa": {
-        "Maize (Long Rains)": {
-            "start":3,"end":9,"daily_demand_mm":4.8,"optimal_temp":(18,26),
-            "stages":{3:"Planting",4:"Vegetative",5:"Vegetative",
-                      6:"Tasseling & Silking (Critical)",7:"Grain Filling",8:"Maturity",9:"Harvesting",
-                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow"},
-        },
-        "Maize (Short Rains)": {
-            "start":10,"end":2,"daily_demand_mm":4.8,"optimal_temp":(18,26),
-            "stages":{10:"Planting",11:"Vegetative",12:"Tasseling (Critical)",
-                      1:"Grain Filling",2:"Harvesting",
-                      3:"Fallow",4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-        "Sorghum": {
-            "start":4,"end":10,"daily_demand_mm":3.5,"optimal_temp":(22,32),
-            "stages":{4:"Planting",5:"Vegetative",6:"Vegetative",7:"Flowering (Critical)",
-                      8:"Grain Filling",9:"Maturity",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Tea": {
-            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(15,25),
-            "stages":{1:"Dormant",2:"Bud Burst",3:"Flush (Critical)",4:"Flush (Critical)",
-                      5:"Flush (Critical)",6:"Flush",7:"Flush",8:"Flush (Critical)",
-                      9:"Flush",10:"Flush",11:"Semi-dormant",12:"Dormant"},
-        },
-        "Coffee (Arabica)": {
-            "start":3,"end":11,"daily_demand_mm":4.0,"optimal_temp":(15,24),
-            "stages":{3:"Vegetative",4:"Vegetative",5:"Flowering (Critical)",6:"Fruit Set",
-                      7:"Fruit Development (Critical)",8:"Fruit Development",9:"Ripening",
-                      10:"Harvesting",11:"Harvesting",12:"Fallow",1:"Fallow",2:"Fallow"},
-        },
-    },
-    "West Africa": {
-        "Pearl Millet": {
-            "start":5,"end":10,"daily_demand_mm":3.8,"optimal_temp":(25,35),
-            "stages":{5:"Planting",6:"Vegetative",7:"Vegetative",8:"Flowering (Critical)",
-                      9:"Grain Filling",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Sorghum": {
-            "start":5,"end":10,"daily_demand_mm":4.0,"optimal_temp":(25,35),
-            "stages":{5:"Planting",6:"Vegetative",7:"Vegetative",8:"Flowering (Critical)",
-                      9:"Grain Filling",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Groundnut": {
-            "start":5,"end":10,"daily_demand_mm":3.5,"optimal_temp":(25,35),
-            "stages":{5:"Sowing",6:"Vegetative",7:"Flowering & Pegging (Critical)",
-                      8:"Pod Development (Critical)",9:"Maturation",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Cowpea": {
-            "start":6,"end":10,"daily_demand_mm":3.0,"optimal_temp":(25,35),
-            "stages":{6:"Planting",7:"Vegetative",8:"Flowering (Critical)",
-                      9:"Pod Filling",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow",5:"Fallow"},
-        },
-    },
-    "Southern Africa": {
-        "White Maize": {
-            "start":11,"end":5,"daily_demand_mm":5.0,"optimal_temp":(20,28),
-            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",2:"Vegetative",
-                      3:"Flowering & Tasseling (Critical)",4:"Grain Fill",5:"Harvesting",
-                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Sorghum / Millet": {
-            "start":12,"end":6,"daily_demand_mm":3.8,"optimal_temp":(24,32),
-            "stages":{12:"Planting",1:"Vegetative",2:"Vegetative",3:"Vegetative",
-                      4:"Flowering (Critical)",5:"Maturity",6:"Harvesting",
-                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
-        },
-        "Groundnut": {
-            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,32),
-            "stages":{11:"Sowing",12:"Vegetative",1:"Flowering & Pegging (Critical)",
-                      2:"Pod Development (Critical)",3:"Maturation",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Soybean": {
-            "start":11,"end":4,"daily_demand_mm":4.5,"optimal_temp":(20,30),
-            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",
-                      2:"Flowering (Critical)",3:"Pod Fill (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Cassava": {
-            "start":11,"end":10,"daily_demand_mm":3.5,"optimal_temp":(22,32),
-            "stages":{11:"Planting",12:"Establishment (Critical)",1:"Vegetative (Critical)",
-                      2:"Tuber Initiation",3:"Tuber Bulking (Critical)",4:"Tuber Bulking",
-                      5:"Maturation",6:"Maturation",7:"Maturation",8:"Maturation",
-                      9:"Harvest Ready",10:"Harvesting"},
-        },
-        "Tobacco (Flue-cured)": {
-            "start":10,"end":3,"daily_demand_mm":4.5,"optimal_temp":(20,28),
-            "stages":{10:"Nursery",11:"Transplanting",12:"Establishment",
-                      1:"Grand Growth (Critical)",2:"Maturation",3:"Harvesting",
-                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-    },
-    # Use Southern Africa calendars for plain "Zambia" region too
-    "Zambia": {
-        "White Maize": {
-            "start":11,"end":5,"daily_demand_mm":5.0,"optimal_temp":(20,28),
-            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",2:"Vegetative",
-                      3:"Flowering & Tasseling (Critical)",4:"Grain Fill",5:"Harvesting",
-                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Sorghum / Millet": {
-            "start":12,"end":6,"daily_demand_mm":3.8,"optimal_temp":(24,32),
-            "stages":{12:"Planting",1:"Vegetative",2:"Vegetative",3:"Vegetative",
-                      4:"Flowering (Critical)",5:"Maturity",6:"Harvesting",
-                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow",11:"Fallow"},
-        },
-        "Groundnut": {
-            "start":11,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,32),
-            "stages":{11:"Sowing",12:"Vegetative",1:"Flowering & Pegging (Critical)",
-                      2:"Pod Development (Critical)",3:"Maturation",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Soybean": {
-            "start":11,"end":4,"daily_demand_mm":4.5,"optimal_temp":(20,30),
-            "stages":{11:"Planting",12:"Emergence",1:"Vegetative",
-                      2:"Flowering (Critical)",3:"Pod Fill (Critical)",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-    },
-    "Australia": {
-        "Winter Wheat": {
-            "start":5,"end":11,"daily_demand_mm":3.8,"optimal_temp":(10,20),
-            "stages":{5:"Sowing",6:"Tillering",7:"Jointing",8:"Booting",
-                      9:"Heading & Flowering (Critical)",10:"Grain Fill",11:"Harvesting",
-                      12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Barley": {
-            "start":5,"end":10,"daily_demand_mm":3.6,"optimal_temp":(12,22),
-            "stages":{5:"Sowing",6:"Tillering",7:"Jointing",8:"Flowering (Critical)",
-                      9:"Grain Filling",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow",4:"Fallow"},
-        },
-        "Canola": {
-            "start":4,"end":10,"daily_demand_mm":3.5,"optimal_temp":(10,22),
-            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
-                      8:"Pod Fill (Critical)",9:"Maturation",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Summer Sorghum": {
-            "start":10,"end":4,"daily_demand_mm":4.0,"optimal_temp":(22,35),
-            "stages":{10:"Planting",11:"Vegetative",12:"Vegetative",1:"Flowering (Critical)",
-                      2:"Grain Fill",3:"Maturity",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-    },
-    "South America": {
-        "Soybean (Summer)": {
-            "start":10,"end":3,"daily_demand_mm":5.0,"optimal_temp":(22,32),
-            "stages":{10:"Planting",11:"Emergence",12:"Vegetative",
-                      1:"Flowering (Critical)",2:"Pod Fill (Critical)",3:"Harvesting",
-                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-        "Maize (Summer)": {
-            "start":10,"end":4,"daily_demand_mm":5.5,"optimal_temp":(20,30),
-            "stages":{10:"Planting",11:"Emergence",12:"Vegetative",
-                      1:"Tasseling (Critical)",2:"Grain Fill",3:"Maturity",4:"Harvesting",
-                      5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow"},
-        },
-        "Coffee (Arabica)": {
-            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(15,24),
-            "stages":{1:"Dormant",2:"Flowering (Critical)",3:"Fruit Set",4:"Fruit Development",
-                      5:"Fruit Development (Critical)",6:"Ripening",7:"Harvesting",
-                      8:"Harvesting",9:"Post-Harvest",10:"Vegetative",11:"Vegetative",12:"Dormant"},
-        },
-    },
-    "North Africa": {
-        "Winter Wheat": {
-            "start":11,"end":6,"daily_demand_mm":4.0,"optimal_temp":(10,22),
-            "stages":{11:"Sowing",12:"Germination",1:"Tillering",2:"Jointing",
-                      3:"Heading",4:"Flowering (Critical)",5:"Grain Fill",6:"Harvesting",
-                      7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Barley": {
-            "start":11,"end":5,"daily_demand_mm":3.5,"optimal_temp":(8,22),
-            "stages":{11:"Sowing",12:"Germination",1:"Tillering",2:"Jointing",
-                      3:"Heading",4:"Flowering (Critical)",5:"Harvesting",
-                      6:"Fallow",7:"Fallow",8:"Fallow",9:"Fallow",10:"Fallow"},
-        },
-        "Olive": {
-            "start":1,"end":12,"daily_demand_mm":2.0,"optimal_temp":(10,30),
-            "stages":{1:"Dormant",2:"Bud Swell",3:"Flowering (Critical)",4:"Fruit Set",
-                      5:"Fruit Growth",6:"Pit Hardening",7:"Fruit Development (Critical)",
-                      8:"Ripening",9:"Ripening",10:"Harvesting",11:"Harvesting",12:"Dormant"},
-        },
-    },
-    "Central Asia": {
-        "Cotton": {
-            "start":4,"end":10,"daily_demand_mm":5.5,"optimal_temp":(25,35),
-            "stages":{4:"Sowing",5:"Emergence",6:"Squaring",7:"Flowering (Critical)",
-                      8:"Boll Development (Critical)",9:"Boll Opening",10:"Picking",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Winter Wheat": {
-            "start":10,"end":7,"daily_demand_mm":4.0,"optimal_temp":(8,20),
-            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",1:"Overwintering",
-                      2:"Returning Green",3:"Jointing",4:"Heading",
-                      5:"Flowering (Critical)",6:"Grain Fill",7:"Harvesting",
-                      8:"Fallow",9:"Fallow"},
-        },
-    },
-    "Europe": {
-        "Winter Wheat": {
-            "start":10,"end":7,"daily_demand_mm":3.5,"optimal_temp":(8,20),
-            "stages":{10:"Sowing",11:"Germination",12:"Overwintering",1:"Overwintering",
-                      2:"Returning Green",3:"Jointing",4:"Heading",
-                      5:"Flowering (Critical)",6:"Grain Fill",7:"Harvesting",
-                      8:"Fallow",9:"Fallow"},
-        },
-        "Sunflower": {
-            "start":4,"end":9,"daily_demand_mm":4.0,"optimal_temp":(18,28),
-            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
-                      8:"Seed Fill (Critical)",9:"Harvesting",
-                      10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Maize (Summer)": {
-            "start":4,"end":10,"daily_demand_mm":4.5,"optimal_temp":(18,28),
-            "stages":{4:"Sowing",5:"Emergence",6:"Vegetative",7:"Tasseling (Critical)",
-                      8:"Grain Fill (Critical)",9:"Maturation",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-    },
-    "Global": {
-        "Generic Cereal": {
-            "start":4,"end":10,"daily_demand_mm":4.5,"optimal_temp":(15,28),
-            "stages":{4:"Planting",5:"Emergence",6:"Vegetative",7:"Flowering (Critical)",
-                      8:"Grain Fill",9:"Maturation",10:"Harvesting",
-                      11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-    },
-    "Sri Lanka": {
-        "Maha Rice (Main)": {
-            "start":9,"end":3,"daily_demand_mm":7.0,"optimal_temp":(24,32),
-            "stages":{9:"Nursery",10:"Transplanting",11:"Vegetative",12:"Panicle Initiation",
-                      1:"Flowering (Critical)",2:"Grain Fill",3:"Harvesting",
-                      4:"Fallow",5:"Fallow",6:"Fallow",7:"Fallow",8:"Fallow"},
-        },
-        "Yala Rice (Secondary)": {
-            "start":4,"end":8,"daily_demand_mm":7.0,"optimal_temp":(26,34),
-            "stages":{4:"Nursery",5:"Transplanting",6:"Vegetative",
-                      7:"Flowering (Critical)",8:"Harvesting",
-                      9:"Fallow",10:"Fallow",11:"Fallow",12:"Fallow",1:"Fallow",2:"Fallow",3:"Fallow"},
-        },
-        "Tea": {
-            "start":1,"end":12,"daily_demand_mm":4.5,"optimal_temp":(16,24),
-            "stages":{1:"Dormant",2:"Bud Burst",3:"Flush (Critical)",4:"Flush (Critical)",
-                      5:"Flush",6:"Flush",7:"Flush (Critical)",8:"Flush (Critical)",
-                      9:"Flush",10:"Flush",11:"Semi-dormant",12:"Dormant"},
-        },
-    },
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PRESET LOCATIONS
@@ -539,6 +114,8 @@ PRESETS = {
     "Chiang Mai, Thailand":    {"coords": [18.79,   98.98]},
     "Lahore, Pakistan":        {"coords": [31.55,   74.34]},
     "São Paulo State, Brazil": {"coords": [-22.90,  -47.06]},
+    "Iowa, USA (Corn Belt)":   {"coords": [41.88,   -93.10]},
+    "Saskatchewan, Canada":    {"coords": [50.45,  -104.61]},
     "Custom Point":            {"coords": [-16.25,  27.65]},
 }
 
@@ -1436,39 +1013,56 @@ with tab_elnino:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.subheader("What this means for your current season")
 
-        if dep_pct is not None and oni_v >= 0.5 and ph_en:
-            severity_word = (
-                "severe" if dep_pct < -20 else
-                "noticeable" if dep_pct < -10 else
-                "mild"
-            )
+        # Always lead with the LOCATION sensitivity (the part that varies per farm).
+        # ENSO classification thresholds (NOAA): El Nino >= +0.5, La Nina <= -0.5,
+        # else Neutral. ONI is a single global number, so the *current phase* is
+        # the same everywhere — what changes per location is the *response*.
+
+        if dep_pct is not None and ph_en and ph_neu:
+            sens_word = ("highly sensitive" if abs(dep_pct) > 20 else
+                         "moderately sensitive" if abs(dep_pct) > 10 else
+                         "weakly sensitive")
+            dep_dir = "drier" if dep_pct < 0 else "wetter"
             st.markdown(
-                f"NINO3.4 is currently **{oni_v:+.2f}°C** — an active El Niño.  \n"
-                f"At this location, El Niño historically reduces growing-season "
-                f"rainfall by **{abs(dep_pct):.0f}%** ({ph_neu['mean_precip']:.0f} mm "
-                f"in Neutral years → {ph_en['mean_precip']:.0f} mm in El Niño years).\n\n"
-                f"Expect a **{severity_word}** dry signal for **{crop_choice}** "
-                f"this season. The most water-sensitive stages of your crop calendar "
-                f"are the highest-risk windows."
-            )
-            if dep_pct < -15:
-                st.error("Historically severe El Niño impact on this location's season. "
-                         "Plan supplementary irrigation early.")
-            elif dep_pct < -5:
-                st.warning("Moderate El Niño rainfall suppression expected.")
-        elif dep_pct is not None and oni_v <= -0.5 and ph_la:
-            st.success(
-                f"NINO3.4 is currently **{oni_v:+.2f}°C** — La Niña.  \n"
-                f"At this location, La Niña years averaged **{ph_la['mean_precip']:.0f} mm** "
-                f"(vs **{ph_neu['mean_precip']:.0f} mm** in Neutral years) — "
-                f"generally wetter than normal."
-            )
+                f"**At this location, the growing season is {sens_word} to El Niño.**  \n"
+                f"In past El Niño seasons, rainfall was **{abs(dep_pct):.0f}% {dep_dir}** "
+                f"than Neutral years ({ph_neu['mean_precip']:.0f} mm → "
+                f"{ph_en['mean_precip']:.0f} mm).")
+            st.markdown(
+                f"<div style='font-size:.84rem;color:#8B949E;margin-top:6px'>"
+                f"Current global ENSO: <b style='color:#E6EDF3'>NINO3.4 = {oni_v:+.2f}°C</b>"
+                f" · NOAA classifies this as <b style='color:#E6EDF3'>"
+                f"{'El Niño' if oni_v >= 0.5 else ('La Niña' if oni_v <= -0.5 else 'Neutral')}</b>."
+                f" Thresholds: El Niño ≥ +0.5°C · La Niña ≤ –0.5°C · between = Neutral."
+                f"</div>",
+                unsafe_allow_html=True)
+
+            # Action banner driven by actual current phase + location sensitivity
+            if oni_v >= 0.5 and dep_pct < -15:
+                st.error(
+                    f"⚠️ El Niño is active AND this location is highly sensitive — "
+                    f"plan supplementary irrigation early. Expected season rainfall "
+                    f"~{ph_en['mean_precip']:.0f} mm vs typical {ph_neu['mean_precip']:.0f} mm.")
+            elif oni_v >= 0.5 and dep_pct < -5:
+                st.warning(f"El Niño is active and this location historically gets "
+                           f"{abs(dep_pct):.0f}% less rain in such years.")
+            elif oni_v >= 0.3 and dep_pct < -10:
+                st.warning(f"ONI is climbing toward the El Niño threshold "
+                           f"(+0.5°C). At this location, El Niño years are "
+                           f"{abs(dep_pct):.0f}% drier — start contingency planning now.")
+            elif oni_v <= -0.5 and ph_la:
+                st.success(
+                    f"La Niña is active. At this location, La Niña years averaged "
+                    f"**{ph_la['mean_precip']:.0f} mm** vs **{ph_neu['mean_precip']:.0f} mm** "
+                    f"in Neutral years — generally wetter than normal.")
+            else:
+                st.info(
+                    f"ENSO is currently Neutral. Most likely outcome: a season "
+                    f"close to the typical **{ph_neu['mean_precip']:.0f} mm**. "
+                    f"Monitor monthly — the ONI is only {abs(oni_v):.2f}°C from "
+                    f"the {'El Niño' if oni_v >= 0 else 'La Niña'} threshold.")
         else:
-            st.info(
-                f"NINO3.4 is currently **{oni_v:+.2f}°C** — Neutral conditions.  \n"
-                f"This season is most likely to resemble the Neutral-year average of "
-                f"**{(ph_neu['mean_precip'] if ph_neu else 0):.0f} mm**."
-            )
+            st.info("Not enough phase data to build a current-season verdict.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
