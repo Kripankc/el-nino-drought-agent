@@ -20,11 +20,12 @@ from datetime import datetime, timedelta
 import calendar
 
 from ensa.ingest.openmeteo import (
-    fetch_weather, fetch_forecast, fetch_climatology, fetch_soil_moisture,
+    fetch_weather, fetch_forecast, fetch_climatology, fetch_soil_moisture, fetch_window,
 )
 from ensa.ingest.enso import fetch_current_oni, fetch_oni_history
 from ensa.analysis.elnino import seasonal_elnino_comparison
 from ensa.analysis.crop_calendars import CROP_CALENDARS
+from ensa.analysis.hindsight import hindsight_compare
 from ensa.agent.brain import (
     compute_drought_score,
     generate_summary,
@@ -304,6 +305,12 @@ def _cached_soil(lat, lon):
     return fetch_soil_moisture(lat, lon, days_back=120)
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_window(lat, lon, end_date_iso, days_back=120):
+    """Cached ERA5 archive window ending on a specific past date."""
+    return fetch_window(lat, lon, end_date_iso, days_back=days_back)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -355,7 +362,14 @@ assessment_date = st.sidebar.date_input("Date",
 a_month = assessment_date.month
 crop_stage = cal["stages"][a_month]
 is_active  = _is_active(cal, a_month)
-is_fc_mode = assessment_date > (datetime.now()-timedelta(days=5)).date()
+is_fc_mode    = assessment_date > (datetime.now() - timedelta(days=5)).date()
+# Hindsight mode: any date older than ~395 days isn't in the standard df_weather
+# window, so we fetch a dedicated archive window centered on that date.
+days_ago      = (datetime.now().date() - assessment_date).days
+is_hindsight  = (not is_fc_mode) and days_ago > 395
+# "Recent past" hindsight: within df_weather range but >7 days old still gets the
+# climatology comparison shown -- it's the model-vs-truth story the user asked for.
+is_past_mode  = (not is_fc_mode) and days_ago > 7
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("4. AI Analysis (optional)")
@@ -466,13 +480,26 @@ with tab_status:
         st.error(f"**Could not load weather data.**\n\nError: `{weather_error or 'empty API response'}`\n\nCheck your internet connection, or try a different location.")
         st.stop()
 
-    # Slice to assessment date
+    # Slice to assessment date.
+    # Three branches:
+    #   forecast mode  -> df_weather + df_forecast
+    #   hindsight mode -> dedicated archive window ending on the past date
+    #   present mode   -> df_weather as-is
     a_dt = pd.Timestamp(assessment_date)
+    hindsight_error = None
     if is_fc_mode and df_forecast is not None and not df_forecast.empty:
         df_all = pd.concat([df_weather, df_forecast], ignore_index=True)
+        df_slice = df_all[df_all["date"] <= a_dt]
+    elif is_hindsight:
+        with st.spinner(f"Loading ERA5 archive for {assessment_date}…"):
+            try:
+                df_slice = _cached_window(_lat_r, _lon_r,
+                                          a_dt.strftime("%Y-%m-%d"), 120)
+            except Exception as e:
+                hindsight_error = str(e)
+                df_slice = df_weather[df_weather["date"] <= a_dt]   # graceful fallback
     else:
-        df_all = df_weather.copy()
-    df_slice = df_all[df_all["date"] <= a_dt]
+        df_slice = df_weather[df_weather["date"] <= a_dt]
 
     assessment = compute_drought_score(df_slice, oni_v, crop_stage, is_active)
     score  = assessment["score"]
@@ -529,9 +556,134 @@ with tab_status:
     st.pyplot(_crop_calendar_strip(cal, a_month), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # ── HINDSIGHT PANEL  (only when user picks a past date > 7 days ago) ─
+    if is_past_mode:
+        if hindsight_error:
+            st.warning(f"Could not fetch the historical archive window: "
+                       f"{hindsight_error}. Showing best-effort comparison below.")
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader(f"🕰️ Hindsight: {assessment_date.strftime('%d %b %Y')} at "
+                     f"{st.session_state.preset_name}")
+        st.caption(
+            "Comparing what the **observed weather** (ERA5 reanalysis) "
+            "actually recorded around that date against two baselines: the "
+            "**climatology** (40-year average for the same calendar window) "
+            "and the **ENSO-conditional baseline** (mean of past seasons whose "
+            "ENSO phase matched the one in effect on that date).")
+
+        try:
+            df_clim_hist = _cached_climatology(_lat_r, _lon_r)
+            oni_hist     = _cached_oni_history()
+            hs = hindsight_compare(df_clim_hist, df_slice, oni_hist, a_dt, window_days=90)
+        except Exception as e:
+            hs = {"ok": False, "reason": str(e)}
+
+        if not hs.get("ok"):
+            st.warning(f"Hindsight comparison unavailable: {hs.get('reason', 'unknown')}")
+        else:
+            enso_then = hs["enso_then"]
+            phase     = enso_then["phase"]
+            ph_color  = {"El Nino": "#F0883E", "La Nina": "#58A6FF",
+                         "Neutral": "#8B949E", "Unknown": "#8B949E"}.get(phase, "#8B949E")
+
+            # ENSO state on that date
+            st.markdown(
+                f"<div style='display:flex;gap:10px;align-items:center;margin-bottom:14px'>"
+                f"<span style='font-size:.74rem;color:#8B949E;"
+                f"text-transform:uppercase;letter-spacing:.1em'>ENSO state on that date</span>"
+                f"<span style='background:{ph_color}22;color:{ph_color};"
+                f"border:1px solid {ph_color}55;padding:3px 10px;border-radius:6px;"
+                f"font-size:.82rem;font-weight:700'>"
+                f"{phase} · NINO3.4 "
+                f"{enso_then['value']:+.2f}°C</span>"
+                f"</div>", unsafe_allow_html=True)
+
+            # 3 stat tiles: observed / climatology / ENSO-conditional
+            cA, cB, cC = st.columns(3)
+            with cA:
+                st.markdown(
+                    f"<div class='card' style='border-color:#21262D'>"
+                    f"<div class='kpi-label' style='color:#3FB950'>OBSERVED (ERA5)</div>"
+                    f"<div class='kpi-value' style='color:#3FB950'>"
+                    f"{hs['observed_precip']:.0f} mm</div>"
+                    f"<div class='kpi-sub'>over 90 days ending {hs['target_date']}</div>"
+                    f"</div>", unsafe_allow_html=True)
+            with cB:
+                d = hs["delta_vs_clim"]
+                d_col = "#F0883E" if d < -20 else ("#3FB950" if d > 20 else "#8B949E")
+                st.markdown(
+                    f"<div class='card' style='border-color:#21262D'>"
+                    f"<div class='kpi-label'>CLIMATOLOGY (naive forecast)</div>"
+                    f"<div class='kpi-value'>{hs['climatology_precip']:.0f} mm</div>"
+                    f"<div class='kpi-sub'>40-yr avg for same window · "
+                    f"<span style='color:{d_col}'>"
+                    f"observed was {d:+.0f} mm vs this</span></div>"
+                    f"</div>", unsafe_allow_html=True)
+            with cC:
+                if hs["enso_conditional_precip"] is not None:
+                    e_d = hs["delta_vs_enso"]
+                    e_col = "#F0883E" if e_d < -20 else ("#3FB950" if e_d > 20 else "#8B949E")
+                    st.markdown(
+                        f"<div class='card' style='border-color:{ph_color}55'>"
+                        f"<div class='kpi-label' style='color:{ph_color}'>"
+                        f"ENSO-AWARE FORECAST</div>"
+                        f"<div class='kpi-value'>{hs['enso_conditional_precip']:.0f} mm</div>"
+                        f"<div class='kpi-sub'>avg of past {phase} years · "
+                        f"<span style='color:{e_col}'>"
+                        f"observed was {e_d:+.0f} mm vs this</span></div>"
+                        f"</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f"<div class='card' style='opacity:.55;border-color:#21262D'>"
+                        f"<div class='kpi-label'>ENSO-AWARE FORECAST</div>"
+                        f"<div class='kpi-value' style='font-size:.95rem;color:#484F58'>"
+                        f"Insufficient data</div>"
+                        f"<div class='kpi-sub'>not enough {phase} years in record</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+            # Verdict
+            skill = hs.get("enso_skill_pct")
+            verdict_md = ""
+            if skill is None:
+                verdict_md = (
+                    f"For this 90-day window ending **{hs['target_date']}**, ERA5 recorded "
+                    f"**{hs['observed_precip']:.0f} mm** of rain. "
+                    f"The long-term climatology for the same calendar window is "
+                    f"**{hs['climatology_precip']:.0f} mm** "
+                    f"({hs['delta_vs_clim']:+.0f} mm difference). "
+                    f"ENSO phase at the time was **{phase}**."
+                )
+            elif skill > 20:
+                verdict_md = (
+                    f"**Knowing it was {phase} would have helped.** "
+                    f"The ENSO-aware forecast (**{hs['enso_conditional_precip']:.0f} mm**) "
+                    f"was {abs(skill):.0f}% closer to what actually happened "
+                    f"(**{hs['observed_precip']:.0f} mm**) than the naive climatology "
+                    f"(**{hs['climatology_precip']:.0f} mm**)."
+                )
+            elif skill < -20:
+                verdict_md = (
+                    f"**ENSO didn't help much here.** Despite {phase} conditions, the actual "
+                    f"observed rainfall was closer to the long-term climatology than to "
+                    f"the typical {phase} signal. Other factors dominated this season."
+                )
+            else:
+                verdict_md = (
+                    f"**ENSO had marginal predictive value** for this season. "
+                    f"The ENSO-aware forecast was within ~{abs(skill):.0f}% skill of "
+                    f"the naive climatology baseline."
+                )
+            st.markdown(
+                f"<div class='insight' style='margin-top:14px;font-size:.93rem'>{verdict_md}</div>",
+                unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
     # ── 5 METRIC CARDS ──────────────────────────────────────────────────
     opt_t_lo, opt_t_hi = cal["optimal_temp"]
-    st.markdown("### Key Indicators (last 90 days — real ERA5 data)")
+    kpi_label_period = (f"around {assessment_date.strftime('%d %b %Y')}"
+                        if is_past_mode else "last 90 days")
+    st.markdown(f"### Key Indicators ({kpi_label_period} — real ERA5 data)")
     m1, m2, m3, m4, m5 = st.columns(5)
 
     def _kpi(col, label, val, sub, ok):
