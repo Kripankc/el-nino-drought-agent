@@ -47,6 +47,33 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     return _parse(r.json()["daily"])
 
 
+def fetch_climatology(lat: float, lon: float, start_year: int = 1985) -> pd.DataFrame:
+    """
+    Fetches a multi-decade daily archive (rainfall + mean temperature) for
+    El Nino vs normal-year comparison. Lean payload — no ET0.
+    Returns DataFrame: date, precip_mm, temp_c.
+    """
+    end = datetime.utcnow() - timedelta(days=5)
+    params = {
+        "latitude":   lat,
+        "longitude":  lon,
+        "start_date": f"{start_year}-01-01",
+        "end_date":   end.strftime("%Y-%m-%d"),
+        "daily":      "precipitation_sum,temperature_2m_mean",
+        "timezone":   "UTC",
+    }
+    r = requests.get(_ARCHIVE_URL, params=params, timeout=60)
+    r.raise_for_status()
+    d = r.json()["daily"]
+    df = pd.DataFrame({
+        "date":      pd.to_datetime(d["time"]).tz_localize(None),
+        "precip_mm": pd.Series(d["precipitation_sum"], dtype=float).fillna(0.0).values,
+        "temp_c":    pd.Series(d["temperature_2m_mean"], dtype=float).values,
+    })
+    df.dropna(subset=["temp_c"], inplace=True)
+    return df.reset_index(drop=True)
+
+
 def _parse(daily: dict) -> pd.DataFrame:
     """Convert Open-Meteo daily JSON to a clean DataFrame."""
     # Use pd.Series() explicitly so we always get a Series, never a numpy array.

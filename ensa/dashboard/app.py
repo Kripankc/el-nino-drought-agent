@@ -19,8 +19,9 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import calendar
 
-from ensa.ingest.openmeteo import fetch_weather, fetch_forecast
-from ensa.ingest.enso import fetch_current_oni
+from ensa.ingest.openmeteo import fetch_weather, fetch_forecast, fetch_climatology
+from ensa.ingest.enso import fetch_current_oni, fetch_oni_history
+from ensa.analysis.elnino import seasonal_elnino_comparison
 from ensa.agent.brain import (
     compute_drought_score,
     generate_summary,
@@ -709,6 +710,16 @@ def _cached_enso():
     return fetch_current_oni()
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_climatology(lat, lon):
+    return fetch_climatology(lat, lon, start_year=1985)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _cached_oni_history():
+    return fetch_oni_history()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -827,8 +838,9 @@ st.markdown(
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
-tab_status, tab_history, tab_fc, tab_about = st.tabs([
-    "🌾 Farm Status", "📈 90-Day History", "🔮 14-Day Forecast", "📖 Methodology"])
+tab_status, tab_history, tab_fc, tab_elnino, tab_about = st.tabs([
+    "🌾 Farm Status", "📈 90-Day History", "🔮 14-Day Forecast",
+    "🌊 El Niño Impact", "📖 Methodology"])
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB 1: FARM STATUS
@@ -1222,7 +1234,165 @@ with tab_fc:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TAB 4: METHODOLOGY
+# TAB 4: EL NIÑO IMPACT — this location's history, El Niño vs Neutral years
+# ═══════════════════════════════════════════════════════════════════════════
+with tab_elnino:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader(f"🌊 El Niño Impact on {crop_choice} at {st.session_state.preset_name}")
+    st.caption("Comparing rainfall during the crop's growing season across "
+               "all El Niño years vs Neutral years vs La Niña years since 1985. "
+               "Real ERA5 history. Real NOAA ONI classification. No simulations.")
+
+    with st.spinner("Loading 40 years of climatology…"):
+        try:
+            df_clim   = _cached_climatology(_lat_r, _lon_r)
+            oni_hist  = _cached_oni_history()
+            elnino    = seasonal_elnino_comparison(df_clim, oni_hist, cal)
+        except Exception as e:
+            elnino = {"ok": False, "reason": str(e)}
+
+    if not elnino.get("ok"):
+        st.warning(
+            f"Could not build El Niño comparison: {elnino.get('reason', 'unknown')}.  \n"
+            f"This view needs at least 6 complete growing seasons with valid ONI data. "
+            f"Try a different location or crop.")
+    else:
+        phases   = elnino["phases"]
+        dep_pct  = elnino["elnino_departure_pct"]
+        ph_en    = phases.get("El Nino")
+        ph_neu   = phases.get("Neutral")
+        ph_la    = phases.get("La Nina")
+
+        # ── Headline stat ────────────────────────────────────────────────
+        if dep_pct is not None:
+            hl_col   = "#F0883E" if dep_pct < -10 else ("#E3B341" if dep_pct < 0 else "#3FB950")
+            hl_emoji = "⚠️" if dep_pct < -10 else ("🔻" if dep_pct < 0 else "↗")
+            hl_msg   = (
+                f"In **El Niño years**, the growing season at this location received "
+                f"<span style='color:{hl_col};font-weight:700'>{dep_pct:+.0f}%</span> "
+                f"rainfall vs Neutral years."
+            )
+            if dep_pct < -20:
+                hl_msg += " That is a **substantial dry signal** — expect drought-style stress."
+            elif dep_pct < -5:
+                hl_msg += " That is a **mild dry signal**."
+            elif dep_pct > 5:
+                hl_msg += " Interestingly, El Niño actually brings MORE rain here."
+            else:
+                hl_msg += " Little ENSO sensitivity at this location."
+            st.markdown(
+                f"<div style='background:#161C22;border:1px solid {hl_col}44;border-radius:8px;"
+                f"padding:14px 20px;margin:10px 0'>"
+                f"<div style='font-size:.66rem;color:#8B949E;text-transform:uppercase;"
+                f"letter-spacing:.1em;margin-bottom:6px'>Climatological Signal</div>"
+                f"<div style='font-size:1rem;color:#E6EDF3;line-height:1.6'>{hl_emoji} {hl_msg}</div>"
+                f"<div style='font-size:.78rem;color:#484F58;margin-top:6px'>"
+                f"Based on {elnino['n_seasons']} growing seasons from "
+                f"{elnino['first_year']} to {elnino['last_year']}.</div></div>",
+                unsafe_allow_html=True)
+
+        # ── KPI strip ────────────────────────────────────────────────────
+        c1, c2, c3 = st.columns(3)
+        for col, ph_key, color in [(c1, "El Nino", "#F0883E"),
+                                    (c2, "Neutral", "#8B949E"),
+                                    (c3, "La Nina", "#58A6FF")]:
+            with col:
+                ph = phases.get(ph_key)
+                if ph:
+                    col.markdown(
+                        f"<div class='card'>"
+                        f"<div style='font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;"
+                        f"color:{color};font-weight:600;margin-bottom:6px'>{ph_key} Years</div>"
+                        f"<div style='font-size:1.7rem;font-weight:700;color:#E6EDF3;line-height:1'>"
+                        f"{ph['mean_precip']:.0f} mm</div>"
+                        f"<div style='font-size:.77rem;color:#8B949E;margin-top:4px'>"
+                        f"Avg season rainfall · {ph['n_years']} years · {ph['mean_temp']:.1f}°C</div>"
+                        f"</div>", unsafe_allow_html=True)
+                else:
+                    col.markdown(
+                        f"<div class='card' style='opacity:.5'>"
+                        f"<div style='font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;"
+                        f"color:#8B949E;font-weight:600;margin-bottom:6px'>{ph_key} Years</div>"
+                        f"<div style='color:#484F58;font-size:.85rem'>No years in record</div>"
+                        f"</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Per-year chart ──────────────────────────────────────────────
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Year-by-year growing-season rainfall")
+        st.caption("Each bar = one growing season. Coloured by the ENSO phase that "
+                   "year. Dashed line = Neutral-year average.")
+
+        series = elnino["series"]
+        years   = [s["year"]   for s in series]
+        precips = [s["precip"] for s in series]
+        phs     = [s["phase"]  for s in series]
+        ph_color = {"El Nino": "#F0883E", "Neutral": "#8B949E", "La Nina": "#58A6FF"}
+        colors   = [ph_color[p] for p in phs]
+
+        fig_y, ax_y = plt.subplots(figsize=(10, 3.0), facecolor="none")
+        ax_y.bar(years, precips, color=colors, alpha=0.88, width=0.7, zorder=2)
+        if ph_neu:
+            ax_y.axhline(ph_neu["mean_precip"], color="#8B949E", linestyle="--",
+                         linewidth=1.4, alpha=0.7,
+                         label=f"Neutral-year avg ({ph_neu['mean_precip']:.0f} mm)", zorder=3)
+        ax_y.set_xticks(years)
+        ax_y.set_xticklabels([str(y) for y in years], rotation=45, ha="right", fontsize=7)
+        _ax(ax_y, xrot=45)
+        ax_y.set_ylabel("mm per season", color="#484F58", fontsize=8)
+        from matplotlib.patches import Patch
+        ax_y.legend(handles=[
+            Patch(facecolor="#F0883E", alpha=0.88, label="El Niño year"),
+            Patch(facecolor="#8B949E", alpha=0.88, label="Neutral year"),
+            Patch(facecolor="#58A6FF", alpha=0.88, label="La Niña year"),
+            plt.Line2D([0],[0], color="#8B949E", linestyle="--", linewidth=1.4, label="Neutral avg"),
+        ], facecolor="#161C22", edgecolor="#21262D", labelcolor="#8B949E",
+           fontsize=7, ncol=4, loc="upper right")
+        st.pyplot(fig_y, use_container_width=True); plt.close(fig_y)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── What this means for this season ─────────────────────────────
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("What this means for your current season")
+
+        if dep_pct is not None and oni_v >= 0.5 and ph_en:
+            severity_word = (
+                "severe" if dep_pct < -20 else
+                "noticeable" if dep_pct < -10 else
+                "mild"
+            )
+            st.markdown(
+                f"NINO3.4 is currently **{oni_v:+.2f}°C** — an active El Niño.  \n"
+                f"At this location, El Niño historically reduces growing-season "
+                f"rainfall by **{abs(dep_pct):.0f}%** ({ph_neu['mean_precip']:.0f} mm "
+                f"in Neutral years → {ph_en['mean_precip']:.0f} mm in El Niño years).\n\n"
+                f"Expect a **{severity_word}** dry signal for **{crop_choice}** "
+                f"this season. The most water-sensitive stages of your crop calendar "
+                f"are the highest-risk windows."
+            )
+            if dep_pct < -15:
+                st.error("Historically severe El Niño impact on this location's season. "
+                         "Plan supplementary irrigation early.")
+            elif dep_pct < -5:
+                st.warning("Moderate El Niño rainfall suppression expected.")
+        elif dep_pct is not None and oni_v <= -0.5 and ph_la:
+            st.success(
+                f"NINO3.4 is currently **{oni_v:+.2f}°C** — La Niña.  \n"
+                f"At this location, La Niña years averaged **{ph_la['mean_precip']:.0f} mm** "
+                f"(vs **{ph_neu['mean_precip']:.0f} mm** in Neutral years) — "
+                f"generally wetter than normal."
+            )
+        else:
+            st.info(
+                f"NINO3.4 is currently **{oni_v:+.2f}°C** — Neutral conditions.  \n"
+                f"This season is most likely to resemble the Neutral-year average of "
+                f"**{(ph_neu['mean_precip'] if ph_neu else 0):.0f} mm**."
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAB 5: METHODOLOGY
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_about:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
