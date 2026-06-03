@@ -49,6 +49,31 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     return _parse(r.json()["daily"])
 
 
+def fetch_window(lat: float, lon: float, end_date, days_back: int = 120) -> pd.DataFrame:
+    """
+    Fetches a historical ERA5 archive window ending on a SPECIFIC past date.
+    Used for hindsight analysis ("what actually happened on 2023-01-15?").
+    Returns DataFrame: date, precip_mm, temp_c, et0_mm, water_balance_mm.
+    """
+    end = pd.Timestamp(end_date)
+    # Allow a small look-ahead so we can also show what came AFTER the selected date
+    look_ahead = min(14, (datetime.utcnow().date() - end.date()).days)
+    look_ahead = max(0, look_ahead - 5)  # archive has ~5 day lag
+    end_with_buffer = end + pd.Timedelta(days=look_ahead)
+    start = end - pd.Timedelta(days=days_back)
+    params = {
+        "latitude":   lat,
+        "longitude":  lon,
+        "start_date": start.strftime("%Y-%m-%d"),
+        "end_date":   end_with_buffer.strftime("%Y-%m-%d"),
+        "daily":      _DAILY_VARS,
+        "timezone":   "UTC",
+    }
+    r = requests.get(_ARCHIVE_URL, params=params, timeout=30)
+    r.raise_for_status()
+    return _parse(r.json()["daily"])
+
+
 def fetch_soil_moisture(lat: float, lon: float, days_back: int = 120) -> pd.DataFrame:
     """
     Fetches real ERA5 volumetric soil moisture (0-1) for two depth layers
