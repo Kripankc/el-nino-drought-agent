@@ -157,6 +157,184 @@ def generate_summary(assessment: dict, crop_name: str, crop_stage: str,
         )
 
 
+# ──────────────────────────────────────────────
+# PAST-TENSE NARRATIVE (for hindsight / historical analysis mode)
+# ──────────────────────────────────────────────
+
+def generate_summary_past(assessment: dict, crop_name: str, crop_stage: str,
+                          oni_phase: str, location_name: str,
+                          target_date: str) -> str:
+    """Past-tense summary for historical date analysis."""
+    level   = assessment["alert_level"]
+    precip  = assessment["total_precip_90d_mm"]
+    deficit = assessment["cumulative_deficit_mm"]
+    temp    = assessment["avg_temp_c"]
+    et0     = assessment["total_et0_90d_mm"]
+    off_season = "" if assessment["is_active_season"] else (
+        f" Note: {crop_name} was in its off-season at this time, so observed "
+        "dry conditions did not reflect active crop stress."
+    )
+
+    if level in ("Extreme", "Severe"):
+        return (
+            f"On **{target_date}**, conditions near {location_name} were under "
+            f"serious drought stress. Only {precip:.0f} mm of rain had fallen "
+            f"in the preceding 90 days against an evaporation demand of "
+            f"{et0:.0f} mm — a cumulative water deficit of {deficit:.0f} mm. "
+            f"Average temperature was {temp:.1f}°C. "
+            f"ENSO phase was **{oni_phase.lower()}**. "
+            f"The {crop_name} crop in the {crop_stage} stage faced high risk "
+            f"of significant yield loss during this period.{off_season}"
+        )
+    elif level == "Warning":
+        return (
+            f"On **{target_date}**, conditions near {location_name} showed "
+            f"moderate drought stress. Rainfall over the preceding 90 days "
+            f"({precip:.0f} mm) was below crop water requirements, with a "
+            f"cumulative deficit of {deficit:.0f} mm. Temperature averaged "
+            f"{temp:.1f}°C. ENSO phase was **{oni_phase.lower()}**. "
+            f"The {crop_name} crop required close monitoring during this "
+            f"period.{off_season}"
+        )
+    elif level == "Watch":
+        return (
+            f"On **{target_date}**, conditions near {location_name} were "
+            f"slightly drier than normal. Rainfall over the preceding 90 days "
+            f"({precip:.0f} mm) trailed evaporation demand by {deficit:.0f} mm, "
+            f"but crops were not under acute stress. ENSO phase was "
+            f"**{oni_phase.lower()}**.{off_season}"
+        )
+    else:
+        return (
+            f"On **{target_date}**, conditions near {location_name} were "
+            f"within the normal range. Rainfall over the preceding 90 days "
+            f"({precip:.0f} mm) was adequate for the season, and temperatures "
+            f"({temp:.1f}°C) were typical. ENSO phase was "
+            f"**{oni_phase.lower()}**.{off_season}"
+        )
+
+
+def generate_observations_past(assessment: dict, crop_name: str,
+                                crop_stage: str, oni_value: float,
+                                target_date: str) -> list[str]:
+    """
+    Past-tense observations of what the crop and farm likely experienced.
+    Returned as a list of evidence-based statements (not action items).
+    """
+    level   = assessment["alert_level"]
+    deficit = assessment["cumulative_deficit_mm"]
+    precip  = assessment["total_precip_90d_mm"]
+    temp    = assessment["avg_temp_c"]
+    is_critical = assessment["is_critical_stage"]
+    is_active   = assessment["is_active_season"]
+    obs = []
+
+    if level in ("Extreme", "Severe"):
+        obs.append(
+            f"🌾 **Crop water stress was severe.** Rainfall ({precip:.0f} mm) "
+            f"covered only a fraction of the {crop_name} crop's needs over "
+            f"this 90-day period."
+        )
+        if is_critical:
+            obs.append(
+                f"💔 **Critical growth stage coincided with drought.** "
+                f"{crop_stage} is the most water-sensitive phase — pollination "
+                f"failure and irreversible yield loss were likely outcomes."
+            )
+        obs.append(
+            f"🔥 **Cumulative deficit of {deficit:.0f} mm** indicates the soil "
+            "moisture reserves were likely depleted, with topsoil drying out "
+            "well into the root zone."
+        )
+        if temp > 28:
+            obs.append(
+                f"🌡️ **Heat compounded the stress.** Average temperature of "
+                f"{temp:.1f}°C accelerated evapotranspiration and shortened "
+                f"the effective grain-filling window."
+            )
+        if oni_value >= 1.5:
+            obs.append(
+                f"🌊 **Strong El Niño conditions** (NINO3.4 ≥ +1.5°C) were "
+                "active. Across analogous past events, this teleconnection "
+                "consistently suppressed regional monsoon and growing-season "
+                "rainfall."
+            )
+        elif oni_value <= -1.0:
+            obs.append(
+                "🌊 **La Niña conditions** were active. The drought signal "
+                "here would have run counter to the typical La Niña wet "
+                "pattern — suggesting local factors dominated."
+            )
+        if is_active:
+            obs.append(
+                f"📉 **Likely outcome:** significant yield reduction for "
+                f"{crop_name}. Farmers with irrigation access would have "
+                f"depleted local water reserves; rainfed plots would have "
+                f"shown visible canopy browning by the end of this window."
+            )
+    elif level == "Warning":
+        obs.append(
+            f"💧 **Moisture supply ran behind demand.** A {deficit:.0f} mm "
+            f"deficit accumulated over 90 days; not catastrophic, but enough "
+            f"to slow crop development."
+        )
+        if is_critical:
+            obs.append(
+                f"⚠️ **{crop_stage} stage was vulnerable.** Below-normal "
+                "rainfall during this reproductive phase typically reduces "
+                "final yield by 10-25%."
+            )
+        if temp > 28:
+            obs.append(
+                f"🌡️ Temperatures averaging {temp:.1f}°C added to "
+                f"evapotranspiration stress."
+            )
+        if oni_value >= 0.5:
+            obs.append(
+                f"🌊 El Niño conditions were active (NINO3.4 "
+                f"+{oni_value:.2f}°C), historically associated with drier "
+                f"seasons in many crop regions."
+            )
+        obs.append(
+            f"📊 **Likely outcome:** modest yield reduction relative to a "
+            f"normal season for {crop_name}, with quality and grain weight "
+            f"affected more than total grain count."
+        )
+    elif level == "Watch":
+        obs.append(
+            f"👁️ Conditions were drier than normal but not stressed. "
+            f"A {deficit:.0f} mm gap between supply and demand built up over "
+            f"the 90-day window."
+        )
+        obs.append(
+            f"🌱 Crop growth would have proceeded near normal, with mild "
+            f"slowing during peak demand periods."
+        )
+    else:
+        obs.append(
+            f"✅ **Conditions were favorable.** {precip:.0f} mm of rain met "
+            f"or exceeded {crop_name} water requirements over the 90-day "
+            f"window."
+        )
+        if oni_value <= -0.5:
+            obs.append(
+                f"🌊 La Niña conditions (NINO3.4 {oni_value:+.2f}°C) "
+                f"were active — historically a wet pattern for many regions, "
+                f"consistent with the observed rainfall surplus."
+            )
+        obs.append(
+            f"🌾 **Likely outcome:** normal or above-normal yield for "
+            f"{crop_name} given the favorable supply-demand balance."
+        )
+    if not is_active:
+        obs.append(
+            f"📅 Note: {crop_name} was in its off-season during this period, "
+            f"so the drought score reflects climatology only, not active "
+            f"crop stress."
+        )
+    return obs
+
+
 def generate_recommendations(assessment: dict, crop_name: str,
                               crop_stage: str, oni_value: float) -> list[str]:
     level = assessment["alert_level"]
