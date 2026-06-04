@@ -1,7 +1,7 @@
-# ENSA — El Niño Sentinel Agent
+# ENSOwatch AI
 
-> **Real-time agricultural drought early-warning for any farm on Earth.**
-> Free, open-data, no API keys, no sign-up.
+> **Agricultural drought early-warning powered by AI.**
+> Free, open-data, no API keys, no sign-up. Any farm on Earth.
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ensa-kripan.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
@@ -10,9 +10,9 @@
 
 ---
 
-## What ENSA does
+## What ENSOwatch AI does
 
-ENSA monitors any farm location on Earth for **El Niño-driven drought risk** and gives the farmer a clear, actionable verdict in plain language.
+ENSOwatch AI monitors any farm location on Earth for **ENSO-driven drought risk** (El Niño *and* La Niña phases) and gives the farmer a clear, actionable verdict in plain language.
 
 Click anywhere on the world map, pick a crop, and the dashboard shows:
 
@@ -165,9 +165,9 @@ Free hosting forever. Every push to `main` redeploys automatically.
 
 ---
 
-## A note on the name
+## A note on satellites
 
-The **"Sentinel"** in *El Niño Sentinel Agent* uses the classical sense of *watcher* or *early-warning guard* — borrowed from the role of an outpost soldier. **This dashboard does not currently use Sentinel-2 satellite imagery.** Adding real-time NDVI from the Sentinel-2 STAC catalog is on the roadmap below.
+ENSOwatch AI does **not currently use Sentinel-2 satellite imagery.** All vegetation and soil moisture indicators come from the ERA5 reanalysis (which itself ingests satellite radiances). Adding real-time NDVI maps from the Sentinel-2 STAC catalog is on the roadmap below.
 
 ---
 

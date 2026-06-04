@@ -1,9 +1,14 @@
 """
-ENSA — El Niño Sentinel Agent  v2.1
-Farmer-facing drought early-warning dashboard.
-Weather: Open-Meteo ERA5 (real, free, no key).
-ENSO:    NOAA CPC NINO3.4 (real, free, no key).
-LLM:     optional — user supplies their own Anthropic/OpenAI key.
+ENSOwatch AI — Agricultural Drought Early-Warning
+Farmer-facing dashboard built on free public climate data.
+
+Data sources:
+  Weather:        Open-Meteo ERA5 archive + 14-day forecast (free, no key)
+  ENSO state:     NOAA CPC NINO3.4 (free, no key)
+  Soil moisture:  ERA5 volumetric (free, no key)
+  Crop calendars: FAO / USDA / IRRI (literature-grounded)
+
+Optional AI narrative: user supplies their own Anthropic or OpenAI key.
 """
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -40,30 +45,209 @@ from ensa.db.connection import get_db_connection, init_db
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ENSA — Drought Early Warning",
-    page_icon="🌾",
+    page_title="ENSOwatch AI — Agricultural Drought Early-Warning",
+    page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
+# Institutional Light theme — inspired by FAO GIEWS / World Bank CKP / WFP HungerMap
 st.markdown("""
 <style>
-  .stApp{background:linear-gradient(135deg,#060913 0%,#020307 100%);color:#e2e8f0;}
-  h1,h2,h3,h4{color:#fff;font-weight:700;letter-spacing:-.025em;}
-  .card{background:rgba(255,255,255,.03);border-radius:16px;padding:20px 24px;
-    border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 32px rgba(0,0,0,.45);margin-bottom:18px;}
-  .rec-item{padding:10px 14px;border-radius:10px;background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.06);margin-bottom:8px;font-size:.97rem;line-height:1.55;}
-  .stTabs [data-baseweb="tab-list"]{gap:20px;background:transparent;}
-  .stTabs [data-baseweb="tab"]{background:transparent;color:#a0aec0;font-weight:600;}
-  .stTabs [aria-selected="true"]{color:#38ef7d !important;border-bottom-color:#38ef7d !important;}
-  .kpi-label{font-size:.72rem;color:#a0aec0;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;}
-  .kpi-value{font-size:1.55rem;font-weight:700;color:#fff;}
-  .kpi-sub{font-size:.82rem;color:#a0aec0;margin-top:1px;}
-  .enso-chip{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.82rem;font-weight:700;}
-  .sat-bar-wrap{background:#1a1a2e;border-radius:8px;height:22px;overflow:hidden;margin:6px 0 2px;}
-  .sat-bar-fill{height:100%;border-radius:8px;transition:width .4s;}
-  .stage-pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:.8rem;font-weight:600;margin:2px 3px;}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/* ---- App shell ----------------------------------------------------- */
+html, body, [class*="stApp"] {
+    background: #FAFAF7 !important;
+    color: #1F2937 !important;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+.stApp { background: #FAFAF7 !important; }
+.block-container { padding-top: 1.5rem !important; padding-bottom: 4rem !important; max-width: 1400px; }
+
+/* ---- Typography ---------------------------------------------------- */
+h1, h2, h3, h4, h5 {
+    font-family: 'IBM Plex Serif', Georgia, serif !important;
+    color: #111827 !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em !important;
+}
+h1 { font-size: 2rem !important; }
+h2 { font-size: 1.5rem !important; }
+h3 { font-size: 1.15rem !important; margin-top: 0.5rem !important; }
+h4 { font-size: 1rem !important; }
+p, .stMarkdown p, label, span { color: #374151 !important; }
+.stMarkdown code, .data-mono { font-family: 'IBM Plex Mono', monospace !important; }
+
+/* ---- Cards (white surface, hairline border, no shadow) ------------- */
+.card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+}
+
+/* ---- Section labels ----------------------------------------------- */
+.kpi-label, .sec-label {
+    font-size: 0.7rem !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6B7280 !important;
+    margin-bottom: 6px;
+}
+.kpi-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.7rem;
+    font-weight: 600;
+    color: #111827 !important;
+    line-height: 1.1;
+}
+.kpi-sub {
+    font-size: 0.8rem;
+    color: #6B7280 !important;
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+/* ---- Recommendation / observation rows ----------------------------- */
+.rec-item {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-left: 3px solid #003D5C;
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin-bottom: 8px;
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: #1F2937;
+}
+
+/* ---- Tabs (clean, institutional) ----------------------------------- */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent;
+    border-bottom: 1px solid #E5E7EB;
+    gap: 0;
+    padding-left: 0;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: #6B7280 !important;
+    font-weight: 500 !important;
+    font-size: 0.92rem !important;
+    padding: 8px 18px !important;
+    border-radius: 0 !important;
+    border-bottom: 2px solid transparent !important;
+    margin-bottom: -1px !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #003D5C !important;
+    border-bottom-color: #003D5C !important;
+    background: transparent !important;
+    font-weight: 600 !important;
+}
+
+/* ---- Sidebar -------------------------------------------------------- */
+[data-testid="stSidebar"] {
+    background: #F3F4F6 !important;
+    border-right: 1px solid #E5E7EB !important;
+}
+[data-testid="stSidebar"] * { color: #374151 !important; }
+[data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: #111827 !important; }
+[data-testid="stSidebar"] hr { border-color: #E5E7EB !important; }
+
+/* ---- Buttons -------------------------------------------------------- */
+.stButton > button {
+    background: #003D5C !important;
+    color: #FFFFFF !important;
+    border: 1px solid #003D5C !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+    transition: background 0.15s ease;
+}
+.stButton > button:hover {
+    background: #002A40 !important;
+    border-color: #002A40 !important;
+}
+
+/* ---- Inputs --------------------------------------------------------- */
+input, .stSelectbox > div > div, [data-baseweb="select"] {
+    background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 4px !important;
+    color: #1F2937 !important;
+}
+
+/* ---- Saturation bar (water needs met) ----------------------------- */
+.sat-bar-wrap {
+    background: #F3F4F6;
+    border: 1px solid #E5E7EB;
+    border-radius: 4px;
+    height: 14px;
+    overflow: hidden;
+    margin: 6px 0 4px;
+}
+.sat-bar-fill { height: 100%; border-radius: 3px; }
+
+/* ---- ENSO chip / general chip ------------------------------------- */
+.enso-chip {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+/* ---- Top header bar (wordmark) ------------------------------------ */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 6px 0 16px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid #E5E7EB;
+}
+.brand-wordmark {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #111827;
+    letter-spacing: -0.01em;
+}
+.brand-wordmark .accent { color: #003D5C; }
+.brand-tagline {
+    font-size: 0.85rem;
+    color: #6B7280;
+    margin-left: 14px;
+    border-left: 1px solid #E5E7EB;
+    padding-left: 14px;
+}
+
+/* ---- Streamlit defaults to suppress ------------------------------- */
+#MainMenu, footer, .stDeployButton { display: none !important; }
+.stCaption, .caption { color: #9CA3AF !important; font-size: 0.78rem !important; }
+
+/* ---- Alerts -------------------------------------------------------- */
+[data-testid="stAlert"] { border-radius: 4px; }
+.stAlert > div { font-family: 'IBM Plex Sans', sans-serif !important; }
+
+/* ---- Past-mode banner (lighter slate, less shouty) ---------------- */
+.past-banner {
+    background: #EFF6FF;
+    border-left: 3px solid #003D5C;
+    border-radius: 4px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,128 +310,167 @@ PRESETS = {
 # HELPERS — charts
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Institutional Light chart palette (matches CSS theme)
+_LIGHT_BG       = "#FFFFFF"
+_LIGHT_BORDER   = "#E5E7EB"
+_LIGHT_GRID     = "#F3F4F6"
+_LIGHT_AXIS     = "#6B7280"
+_LIGHT_TEXT     = "#1F2937"
+_LIGHT_TEXT_DIM = "#9CA3AF"
+_ACCENT_NAVY    = "#003D5C"
+_ACCENT_GREEN   = "#15803D"
+_RISK_NORMAL    = "#15803D"
+_RISK_WATCH     = "#1E40AF"
+_RISK_WARNING   = "#B45309"
+_RISK_SEVERE    = "#C2410C"
+_RISK_EXTREME   = "#B91C1C"
+_OFF_SEASON     = "#D1D5DB"
+
+
 def _gauge(score, color):
-    """Half-donut risk gauge."""
-    fig, ax = plt.subplots(figsize=(3.6, 2.2), facecolor="none")
-    ax.set_facecolor("none")
-    θ = np.linspace(np.pi, 0, 300)
-    ax.plot(np.cos(θ), np.sin(θ), color="#1e2535", linewidth=22, solid_capstyle="round", zorder=1)
+    """Half-donut risk gauge — light theme."""
+    fig, ax = plt.subplots(figsize=(3.6, 2.2), facecolor=_LIGHT_BG)
+    ax.set_facecolor(_LIGHT_BG)
+    track_θ = np.linspace(np.pi, 0, 300)
+    ax.plot(np.cos(track_θ), np.sin(track_θ), color=_LIGHT_GRID,
+            linewidth=22, solid_capstyle="round", zorder=1)
     if score > 0:
-        θv = np.linspace(np.pi, np.pi - (min(score,100)/100)*np.pi, 300)
-        ax.plot(np.cos(θv), np.sin(θv), color=color, linewidth=22, solid_capstyle="round", zorder=2)
+        value_θ = np.linspace(np.pi, np.pi - (min(score, 100) / 100) * np.pi, 300)
+        ax.plot(np.cos(value_θ), np.sin(value_θ), color=color,
+                linewidth=22, solid_capstyle="round", zorder=2)
     ax.text(0, 0.18, f"{score:.0f}", ha="center", va="center",
-            fontsize=38, fontweight="bold", color="white", zorder=3)
-    ax.text(0, -0.22, "/ 100  drought risk", ha="center", va="center",
-            fontsize=8.5, color="#a0aec0", zorder=3)
-    ax.set_xlim(-1.4, 1.4); ax.set_ylim(-0.55, 1.4); ax.axis("off")
+            fontsize=38, fontweight="600", color=_LIGHT_TEXT,
+            family="IBM Plex Mono", zorder=3)
+    ax.text(0, -0.22, "out of 100", ha="center", va="center",
+            fontsize=8.5, color=_LIGHT_AXIS, zorder=3)
+    ax.set_xlim(-1.4, 1.4)
+    ax.set_ylim(-0.55, 1.4)
+    ax.axis("off")
     return fig
 
 
 def _ax_style(ax, xlabel_rotation=30):
-    """Consistent dark-theme chart style."""
-    ax.set_facecolor("none")
-    ax.tick_params(colors="#94a3b8", labelsize=8)
-    ax.spines[:].set_visible(False)
-    ax.grid(axis="y", color="white", alpha=0.05, linewidth=0.6)
+    """Consistent light-theme chart style — sober UN/WB look."""
+    ax.set_facecolor(_LIGHT_BG)
+    ax.tick_params(colors=_LIGHT_AXIS, labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.spines["left"].set_visible(True)
+    ax.spines["bottom"].set_visible(True)
+    ax.spines["left"].set_color(_LIGHT_BORDER)
+    ax.spines["bottom"].set_color(_LIGHT_BORDER)
+    ax.grid(axis="y", color=_LIGHT_GRID, linewidth=1, zorder=0)
     plt.xticks(rotation=xlabel_rotation, ha="right")
     for lbl in ax.get_xticklabels() + ax.get_yticklabels():
-        lbl.set_color("#94a3b8")
+        lbl.set_color(_LIGHT_AXIS)
+
+
+def _legend(ax, **kw):
+    """Consistent legend styling."""
+    leg = ax.legend(facecolor=_LIGHT_BG, edgecolor=_LIGHT_BORDER,
+                    labelcolor=_LIGHT_TEXT, fontsize=7, framealpha=1, **kw)
+    return leg
 
 
 def _monthly_bar_chart(df_hist, daily_demand_mm, cal):
-    """Single-bar chart coloured by adequacy + dashed need line."""
+    """Monthly rainfall vs crop need — adequacy-coloured bars + dashed need line."""
     df = df_hist.copy()
     df["ym"] = df["date"].dt.to_period("M")
     monthly = df.groupby("ym").agg(
-        precip_mm=("precip_mm","sum"),
-        n_days=("precip_mm","count"),
+        precip_mm=("precip_mm", "sum"),
+        n_days=("precip_mm", "count"),
     ).reset_index()
     monthly["needed_mm"] = monthly.apply(
-        lambda r: daily_demand_mm * r["n_days"] if _is_active(cal, r["ym"].month) else 0, axis=1
+        lambda r: daily_demand_mm * r["n_days"] if _is_active(cal, r["ym"].month) else 0,
+        axis=1,
     )
     monthly["label"] = monthly["ym"].dt.strftime("%b '%y")
 
     def _bar_color(row):
-        if row["needed_mm"] == 0: return "#334155"          # off-season, slate
-        if row["precip_mm"] >= row["needed_mm"] * 0.9: return "#22c55e"   # met
-        if row["precip_mm"] >= row["needed_mm"] * 0.6: return "#f59e0b"   # borderline
-        return "#ef4444"                                      # deficit
+        if row["needed_mm"] == 0:                                return _OFF_SEASON
+        if row["precip_mm"] >= row["needed_mm"] * 0.9:           return _RISK_NORMAL
+        if row["precip_mm"] >= row["needed_mm"] * 0.6:           return _RISK_WARNING
+        return _RISK_SEVERE
 
     colors = monthly.apply(_bar_color, axis=1)
-
-    fig, ax = plt.subplots(figsize=(8, 2.8), facecolor="none")
-    ax.bar(range(len(monthly)), monthly["precip_mm"], color=colors, alpha=0.85, width=0.65, zorder=2)
-    ax.plot(range(len(monthly)), monthly["needed_mm"], color="#38ef7d",
+    fig, ax = plt.subplots(figsize=(8, 2.8), facecolor=_LIGHT_BG)
+    ax.bar(range(len(monthly)), monthly["precip_mm"], color=colors,
+           alpha=0.92, width=0.65, zorder=2)
+    ax.plot(range(len(monthly)), monthly["needed_mm"], color=_ACCENT_NAVY,
             linewidth=1.6, linestyle="--", marker="o", markersize=3.5,
             label="Crop water need", zorder=3)
     ax.set_xticks(range(len(monthly)))
     ax.set_xticklabels(monthly["label"])
     _ax_style(ax)
-    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
+    ax.set_ylabel("mm", color=_LIGHT_AXIS, fontsize=8)
 
     from matplotlib.patches import Patch
     legend_els = [
-        Patch(facecolor="#22c55e", alpha=0.85, label="Adequate (≥ 90% of need)"),
-        Patch(facecolor="#f59e0b", alpha=0.85, label="Below optimal (60–90%)"),
-        Patch(facecolor="#ef4444", alpha=0.85, label="Critical deficit (< 60%)"),
-        Patch(facecolor="#334155", alpha=0.85, label="Off-season"),
-        plt.Line2D([0],[0], color="#38ef7d", linewidth=1.5, linestyle="--", label="Crop water need"),
+        Patch(facecolor=_RISK_NORMAL,  alpha=0.92, label="Adequate (≥ 90%)"),
+        Patch(facecolor=_RISK_WARNING, alpha=0.92, label="Below optimal (60–90%)"),
+        Patch(facecolor=_RISK_SEVERE,  alpha=0.92, label="Critical deficit (< 60%)"),
+        Patch(facecolor=_OFF_SEASON,   alpha=0.92, label="Off-season"),
+        plt.Line2D([0], [0], color=_ACCENT_NAVY, linewidth=1.5,
+                   linestyle="--", label="Crop water need"),
     ]
-    ax.legend(handles=legend_els, facecolor="#0d1117", edgecolor="#1e293b",
-              labelcolor="#cbd5e1", fontsize=7, ncol=2, loc="upper right")
+    ax.legend(handles=legend_els, facecolor=_LIGHT_BG, edgecolor=_LIGHT_BORDER,
+              labelcolor=_LIGHT_TEXT, fontsize=7, ncol=2, loc="upper right",
+              framealpha=1)
     return fig
 
 
 def _forecast_chart(df_fc, daily_demand_mm):
-    """Forecast bars coloured by whether they meet crop daily need."""
-    colors = ["#22c55e" if r >= daily_demand_mm else
-              ("#f59e0b" if r >= daily_demand_mm * 0.5 else "#ef4444")
+    """Forecast bars coloured by daily-need adequacy."""
+    colors = [_RISK_NORMAL if r >= daily_demand_mm else
+              (_RISK_WARNING if r >= daily_demand_mm * 0.5 else _RISK_SEVERE)
               for r in df_fc["precip_mm"]]
-    fig, ax = plt.subplots(figsize=(8, 2.6), facecolor="none")
-    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors, alpha=0.85, width=0.8, zorder=2)
-    ax.axhline(daily_demand_mm, color="#38ef7d", linestyle="--",
-               linewidth=1.4, label=f"Daily crop need ({daily_demand_mm} mm)", zorder=3)
+    fig, ax = plt.subplots(figsize=(8, 2.6), facecolor=_LIGHT_BG)
+    ax.bar(df_fc["date"], df_fc["precip_mm"], color=colors,
+           alpha=0.92, width=0.8, zorder=2)
+    ax.axhline(daily_demand_mm, color=_ACCENT_NAVY, linestyle="--",
+               linewidth=1.4, label=f"Daily crop need ({daily_demand_mm} mm)",
+               zorder=3)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
     _ax_style(ax)
-    ax.set_ylabel("mm/day", color="#94a3b8", fontsize=8)
-    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+    ax.set_ylabel("mm/day", color=_LIGHT_AXIS, fontsize=8)
+    _legend(ax)
     return fig
 
 
 def _water_balance_chart(df_hist):
-    """Cumulative P − ET₀ over last 90 days."""
+    """Cumulative P − ET₀ over last 90 days — light theme."""
     df = df_hist.tail(90).copy()
     cum = df["water_balance_mm"].cumsum()
-    fig, ax = plt.subplots(figsize=(8, 2.5), facecolor="none")
-    ax.plot(df["date"], cum, color="#94a3b8", linewidth=1.6, zorder=3)
+    fig, ax = plt.subplots(figsize=(8, 2.5), facecolor=_LIGHT_BG)
+    ax.plot(df["date"], cum, color=_LIGHT_TEXT, linewidth=1.6, zorder=3)
     ax.fill_between(df["date"], cum, 0, where=(cum < 0),
-                    color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
+                    color=_RISK_SEVERE, alpha=0.18, label="Deficit", zorder=2)
     ax.fill_between(df["date"], cum, 0, where=(cum >= 0),
-                    color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
-    ax.axhline(0, color="white", linewidth=0.5, alpha=0.3)
+                    color=_RISK_NORMAL, alpha=0.16, label="Surplus", zorder=2)
+    ax.axhline(0, color=_LIGHT_BORDER, linewidth=1, zorder=1)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
     _ax_style(ax)
-    ax.set_ylabel("mm", color="#94a3b8", fontsize=8)
-    ax.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+    ax.set_ylabel("mm", color=_LIGHT_AXIS, fontsize=8)
+    _legend(ax)
     return fig
 
 
 def _crop_calendar_strip(cal, current_month):
-    """Horizontal 12-month crop calendar with current month marked."""
+    """Horizontal 12-month crop calendar with current month marked — light theme."""
     months = list(range(1, 13))
     colors = []
     for m in months:
         stage = cal["stages"][m]
         if "Critical" in stage:
-            colors.append("#ef4444")
+            colors.append(_RISK_SEVERE)
         elif "Fallow" in stage or "Dormant" in stage or "Overwintering" in stage:
-            colors.append("#1e2535")
+            colors.append(_OFF_SEASON)
         elif "Harvesting" in stage:
-            colors.append("#f59e0b")
+            colors.append(_RISK_WARNING)
         else:
-            colors.append("#22c55e")
+            colors.append(_RISK_NORMAL)
 
     fig, ax = plt.subplots(figsize=(10, 1.1), facecolor="none")
     ax.set_facecolor("none")
@@ -257,7 +480,7 @@ def _crop_calendar_strip(cal, current_month):
         ax.add_patch(rect)
         label = calendar.month_abbr[m]
         ax.text(i + 0.44, 0.45, label, ha="center", va="center",
-                color="white", fontsize=8, fontweight="bold")
+                color="white", fontsize=8.5, fontweight="600")
         if m == current_month:
             ax.add_patch(mpatches.FancyBboxPatch((i-0.05, -0.1), 0.98, 1.1,
                 boxstyle="round,pad=0.04", facecolor="none",
@@ -269,7 +492,7 @@ def _crop_calendar_strip(cal, current_month):
                                (6, "Critical / Flowering", "#ef4444"),
                                (9.2, "Harvesting", "#f59e0b")]:
         ax.add_patch(mpatches.Rectangle((x_pos-0.1, -0.22), 0.3, 0.18, color=col))
-        ax.text(x_pos+0.25, -0.14, label, color="#a0aec0", fontsize=6.5, va="center")
+        ax.text(x_pos+0.25, -0.14, label, color="#6B7280", fontsize=6.5, va="center")
     return fig
 
 
@@ -323,9 +546,16 @@ if "preset_name" not in st.session_state: st.session_state.preset_name = "Mazabu
 # SIDEBAR
 # ─────────────────────────────────────────────────────────────────────────────
 st.sidebar.markdown(
-    "<h2 style='text-align:center;margin-bottom:4px'>🌾 ENSA</h2>"
-    "<p style='text-align:center;color:#a0aec0;font-size:.85rem;margin-top:0'>"
-    "El Niño Sentinel Agent</p>", unsafe_allow_html=True)
+    "<div style='text-align:center;padding:8px 0 4px'>"
+    "<div style='font-family:IBM Plex Serif,Georgia,serif;font-size:1.4rem;"
+    "font-weight:600;color:#111827;letter-spacing:-.01em'>"
+    "ENSO<span style='color:#003D5C'>watch</span>"
+    " <span style='font-size:.7em;color:#6B7280;font-weight:500'>AI</span>"
+    "</div>"
+    "<div style='color:#6B7280;font-size:.78rem;margin-top:2px'>"
+    "Agricultural Drought Early-Warning</div>"
+    "</div>",
+    unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
 st.sidebar.subheader("1. Location")
@@ -412,32 +642,34 @@ data_ok = df_weather is not None and not df_weather.empty
 # ─────────────────────────────────────────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────────────────────────────────────────
-st.markdown(
-    "<h1 style='background:linear-gradient(90deg,#38ef7d,#11998e);"
-    "-webkit-background-clip:text;-webkit-text-fill-color:transparent'>"
-    "El Niño Sentinel Agent (ENSA)</h1>", unsafe_allow_html=True)
-st.markdown(
-    f"<p style='color:#a0aec0;font-size:1.0rem;margin-top:-8px'>"
-    f"Agricultural drought early-warning · {active_region} · "
-    f"All data live from Open-Meteo ERA5 & NOAA CPC</p>", unsafe_allow_html=True)
-
-# ENSO BANNER
 oni_v = oni["value"]
-if oni_v >= 1.5:   enso_bg, enso_txt = "#7f1d1d","#fca5a5"
-elif oni_v >= 0.5: enso_bg, enso_txt = "#78350f","#fcd34d"
-elif oni_v <= -0.5:enso_bg, enso_txt = "#1e3a5f","#93c5fd"
-else:              enso_bg, enso_txt = "#14532d","#86efac"
 
-live_tag = "🔴 LIVE" if "Offline" not in oni["source"] else "⚫ OFFLINE"
+# Institutional ENSO chip colors (light theme)
+if   oni_v >= 1.5: enso_bg, enso_border, enso_txt = "#FEE2E2", "#FCA5A5", "#991B1B"
+elif oni_v >= 0.5: enso_bg, enso_border, enso_txt = "#FEF3C7", "#FCD34D", "#92400E"
+elif oni_v <= -0.5:enso_bg, enso_border, enso_txt = "#DBEAFE", "#93C5FD", "#1E40AF"
+else:              enso_bg, enso_border, enso_txt = "#D1FAE5", "#86EFAC", "#065F46"
+
+live_dot = "●" if "Offline" not in oni["source"] else "○"
+
 st.markdown(
-    f"<div style='background:{enso_bg};border-radius:10px;padding:10px 18px;"
-    f"margin-bottom:18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap'>"
-    f"<span class='enso-chip' style='background:rgba(255,255,255,.15);color:{enso_txt}'>"
-    f"NINO3.4: {oni_v:+.2f}°C</span>"
-    f"<span style='color:{enso_txt};font-weight:700'>{oni['phase']}</span>"
-    f"<span style='color:rgba(255,255,255,.55);font-size:.83rem'>"
-    f"{live_tag} · {oni['month_name']} {oni['year']} · {oni['source']}</span>"
-    f"</div>", unsafe_allow_html=True)
+    f"<div class='app-header'>"
+    f"  <div style='display:flex;align-items:center;gap:0;flex-wrap:wrap'>"
+    f"    <span class='brand-wordmark'>ENSO<span class='accent'>watch</span> "
+    f"<span style='font-size:.65em;color:#6B7280;font-weight:500;letter-spacing:.05em'>AI</span></span>"
+    f"    <span class='brand-tagline'>Agricultural drought early-warning · {active_region}</span>"
+    f"  </div>"
+    f"  <div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap'>"
+    f"    <span class='enso-chip' style='background:{enso_bg};border:1px solid {enso_border};color:{enso_txt}'>"
+    f"      NINO3.4&nbsp;&nbsp;<b>{oni_v:+.2f}°C</b>&nbsp;&nbsp;·&nbsp;&nbsp;{oni['phase']}"
+    f"    </span>"
+    f"    <span style='color:#9CA3AF;font-size:.78rem;font-family:IBM Plex Mono,monospace'>"
+    f"      {live_dot} {oni['month_name']} {oni['year']} · NOAA CPC"
+    f"    </span>"
+    f"  </div>"
+    f"</div>",
+    unsafe_allow_html=True
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
@@ -450,19 +682,16 @@ tab_status, tab_history, tab_fc, tab_elnino, tab_about = st.tabs([
 # TAB 1: FARM STATUS
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_status:
-    # Big banner at top when user is analysing a historical date.
+    # Banner at top when user is analysing a historical date.
     if is_past_mode:
         st.markdown(
-            f"<div style='background:linear-gradient(135deg,#1e293b,#0f172a);"
-            f"border-left:4px solid #58A6FF;border-radius:8px;"
-            f"padding:14px 22px;margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
-            f"<span style='font-size:1.4rem'>🕰️</span>"
-            f"<span style='color:#58A6FF;font-weight:700;font-size:.78rem;"
-            f"text-transform:uppercase;letter-spacing:.1em'>Historical Analysis Mode</span>"
-            f"<span style='color:#cbd5e1;font-size:.95rem'>"
-            f"Analysing what happened on <b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
-            f" — {days_ago} days ago. "
-            f"All outputs use past observations only. No live actions.</span>"
+            f"<div class='past-banner'>"
+            f"<span style='font-size:1.2rem'>🕰</span>"
+            f"<span style='color:#003D5C;font-weight:600;font-size:.78rem;"
+            f"text-transform:uppercase;letter-spacing:.08em'>Historical Analysis Mode</span>"
+            f"<span style='color:#374151;font-size:.92rem'>"
+            f"Analysing conditions on <b style='color:#111827'>{assessment_date.strftime('%d %B %Y')}</b>"
+            f" ({days_ago} days ago) — past observations only, no live actions.</span>"
             f"</div>", unsafe_allow_html=True)
 
     col_map, col_info = st.columns([3,1])
@@ -585,7 +814,7 @@ with tab_status:
             summary_text = generate_summary(
                 assessment, crop_choice, crop_stage, score_oni["phase"],
                 st.session_state.preset_name)
-        st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
+        st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#1F2937'>{summary_text}</p>",
                     unsafe_allow_html=True)
 
         if satisfaction_pct is not None:
@@ -600,9 +829,9 @@ with tab_status:
                 f"<div style='margin-top:14px'>"
                 f"<div class='kpi-label'>{sat_label}</div>"
                 f"<div class='sat-bar-wrap'><div class='sat-bar-fill' style='width:{bar_w:.0f}%;background:{bar_color}'></div></div>"
-                f"<div style='font-size:.85rem;color:#a0aec0'>"
-                f"{verb_recv}: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
-                f"{verb_need}: <b style='color:#fff'>{needed:.0f} mm</b> · "
+                f"<div style='font-size:.85rem;color:#6B7280'>"
+                f"{verb_recv}: <b style='color:#111827'>{precip_90:.0f} mm</b> · "
+                f"{verb_need}: <b style='color:#111827'>{needed:.0f} mm</b> · "
                 f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}{verb_met}</b></div>"
                 f"</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -845,11 +1074,11 @@ with tab_history:
         # or a dedicated archive window for older dates).
         if is_past_mode:
             st.markdown(
-                f"<div style='background:#0f172a;border-left:3px solid #58A6FF;"
+                f"<div style='background:#FFFFFF;border-left:3px solid #58A6FF;"
                 f"padding:10px 16px;border-radius:6px;margin-bottom:14px;"
-                f"font-size:.88rem;color:#cbd5e1'>"
+                f"font-size:.88rem;color:#374151'>"
                 f"🕰️ Showing the 90 days ending on "
-                f"<b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
+                f"<b style='color:#111827'>{assessment_date.strftime('%d %B %Y')}</b>"
                 f" (historical analysis).</div>",
                 unsafe_allow_html=True)
             df_hist_source = df_slice
@@ -949,14 +1178,14 @@ with tab_history:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
             st.subheader("Temperature — 90 Days")
             fig_t, ax_t = plt.subplots(figsize=(5, 2.4), facecolor="none")
-            ax_t.plot(df90["date"], df90["temp_c"], color="#f87171", linewidth=1.5, zorder=3)
-            ax_t.axhspan(t_lo, t_hi, alpha=0.10, color="#38ef7d",
+            ax_t.plot(df90["date"], df90["temp_c"], color="#C2410C", linewidth=1.5, zorder=3)
+            ax_t.axhspan(t_lo, t_hi, alpha=0.10, color="#15803D",
                          label=f"Optimal {t_lo}–{t_hi}°C", zorder=2)
             ax_t.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
             ax_t.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
             _ax_style(ax_t)
-            ax_t.set_ylabel("°C", color="#94a3b8", fontsize=8)
-            ax_t.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+            ax_t.set_ylabel("°C", color="#6B7280", fontsize=8)
+            ax_t.legend(facecolor="#FFFFFF", edgecolor="#E5E7EB", labelcolor="#1F2937", fontsize=7)
             st.pyplot(fig_t, use_container_width=True); plt.close(fig_t)
             heat_note = (f"🌡️ **{days_above_opt} days** above the {t_hi}°C optimum — "
                          f"elevated evaporation stress." if days_above_opt > 5 else
@@ -968,14 +1197,14 @@ with tab_history:
             st.markdown("<div class='card'>", unsafe_allow_html=True)
             st.subheader("Daily Rain — 90 Days")
             fig_r, ax_r = plt.subplots(figsize=(5, 2.4), facecolor="none")
-            ax_r.bar(df90["date"], df90["precip_mm"], color="#3b82f6", alpha=0.72, width=0.9, zorder=2)
-            ax_r.axhline(cal["daily_demand_mm"], color="#38ef7d", linestyle="--",
+            ax_r.bar(df90["date"], df90["precip_mm"], color="#1E40AF", alpha=0.78, width=0.9, zorder=2)
+            ax_r.axhline(cal["daily_demand_mm"], color="#003D5C", linestyle="--",
                          linewidth=1.3, label=f"Daily need ({cal['daily_demand_mm']} mm)", zorder=3)
             ax_r.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
             ax_r.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
             _ax_style(ax_r)
-            ax_r.set_ylabel("mm", color="#94a3b8", fontsize=8)
-            ax_r.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+            ax_r.set_ylabel("mm", color="#6B7280", fontsize=8)
+            ax_r.legend(facecolor="#FFFFFF", edgecolor="#E5E7EB", labelcolor="#1F2937", fontsize=7)
             st.pyplot(fig_r, use_container_width=True); plt.close(fig_r)
             st.caption(f"**{dry_days_90}** days with less than 1 mm of rain in the last 90 days.")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -989,16 +1218,16 @@ with tab_history:
             with c_sm_chart:
                 fig_sm, ax_sm = plt.subplots(figsize=(8, 2.6), facecolor="none")
                 ax_sm.plot(df_soil["date"], df_soil["soil_surface"] * 100,
-                           color="#fbbf24", linewidth=1.5, label="Surface 0–7 cm", zorder=2)
+                           color="#B45309", linewidth=1.5, label="Surface 0–7 cm", zorder=2)
                 ax_sm.plot(df_soil["date"], df_soil["soil_root"] * 100,
-                           color="#38bdf8", linewidth=1.7, label="Root-zone 7–28 cm", zorder=3)
+                           color="#1E40AF", linewidth=1.7, label="Root-zone 7–28 cm", zorder=3)
                 # Reference threshold band — below ~18% root-zone moisture is dryland stress
-                ax_sm.axhspan(0, 18, alpha=0.07, color="#ef4444",
+                ax_sm.axhspan(0, 18, alpha=0.10, color="#C2410C",
                               label="Root-zone stress (< 18%)")
                 ax_sm.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
                 ax_sm.xaxis.set_major_locator(mdates.WeekdayLocator(interval=3))
                 _ax_style(ax_sm)
-                ax_sm.set_ylabel("% volumetric", color="#94a3b8", fontsize=8)
+                ax_sm.set_ylabel("% volumetric", color="#6B7280", fontsize=8)
                 ax_sm.legend(facecolor="#0d1117", edgecolor="#1e293b",
                              labelcolor="#cbd5e1", fontsize=7, loc="upper right")
                 st.pyplot(fig_sm, use_container_width=True); plt.close(fig_sm)
@@ -1038,14 +1267,14 @@ with tab_history:
 with tab_fc:
     if is_past_mode:
         st.markdown(
-            f"<div style='background:#1e293b;border:1px solid #475569;"
+            f"<div style='background:#FFFFFF;border:1px solid #E5E7EB;"
             f"border-radius:10px;padding:30px;text-align:center;margin-top:20px'>"
             f"<div style='font-size:2.5rem;margin-bottom:10px'>🚫</div>"
-            f"<div style='color:#cbd5e1;font-size:1.05rem;margin-bottom:6px'>"
+            f"<div style='color:#374151;font-size:1.05rem;margin-bottom:6px'>"
             f"<b>Forecast not applicable for historical dates</b></div>"
-            f"<div style='color:#94a3b8;font-size:.92rem;line-height:1.5;max-width:520px;"
+            f"<div style='color:#6B7280;font-size:.92rem;line-height:1.5;max-width:520px;"
             f"margin:0 auto'>"
-            f"You are analysing <b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
+            f"You are analysing <b style='color:#111827'>{assessment_date.strftime('%d %B %Y')}</b>"
             f" — a past date. A 14-day forecast only makes sense from today forward.<br><br>"
             f"To see the live 14-day forecast for your farm location, set the Assessment "
             f"Date back to today.</div></div>",
@@ -1108,17 +1337,17 @@ with tab_fc:
         c_cum, c_cum_txt = st.columns([3, 2])
         with c_cum:
             fig_cumfc, ax_cumfc = plt.subplots(figsize=(6, 2.4), facecolor="none")
-            ax_cumfc.plot(df_forecast["date"], cum_fc, color="#94a3b8", linewidth=1.6, zorder=3)
+            ax_cumfc.plot(df_forecast["date"], cum_fc, color="#1F2937", linewidth=1.6, zorder=3)
             ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
-                                  where=(cum_fc < 0), color="#ef4444", alpha=0.22, label="Deficit", zorder=2)
+                                  where=(cum_fc < 0), color="#C2410C", alpha=0.18, label="Deficit", zorder=2)
             ax_cumfc.fill_between(df_forecast["date"], cum_fc, 0,
-                                  where=(cum_fc >= 0), color="#22c55e", alpha=0.15, label="Surplus", zorder=2)
-            ax_cumfc.axhline(0, color="white", linewidth=0.5, alpha=0.3)
+                                  where=(cum_fc >= 0), color="#15803D", alpha=0.16, label="Surplus", zorder=2)
+            ax_cumfc.axhline(0, color="#E5E7EB", linewidth=1)
             ax_cumfc.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
             ax_cumfc.xaxis.set_major_locator(mdates.DayLocator(interval=3))
             _ax_style(ax_cumfc)
-            ax_cumfc.set_ylabel("mm", color="#94a3b8", fontsize=8)
-            ax_cumfc.legend(facecolor="#0d1117", edgecolor="#1e293b", labelcolor="#cbd5e1", fontsize=7)
+            ax_cumfc.set_ylabel("mm", color="#6B7280", fontsize=8)
+            ax_cumfc.legend(facecolor="#FFFFFF", edgecolor="#E5E7EB", labelcolor="#1F2937", fontsize=7)
             st.pyplot(fig_cumfc, use_container_width=True); plt.close(fig_cumfc)
             st.caption("Cumulative (rain − evaporation) over the forecast window.")
         with c_cum_txt:
