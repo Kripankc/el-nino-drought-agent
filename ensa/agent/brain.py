@@ -1,8 +1,18 @@
 """
-ENSA drought assessor.
+ENSOwatch AI -- drought assessor.
 Deterministic risk scoring (always free) + optional LLM narrative.
-No Gemini, no Ollama, no raw HTTP hacks — just clean science and clean APIs.
+
+Module API (all exported):
+    compute_drought_score       -- core 0-100 risk score
+    generate_summary            -- present-tense narrative
+    generate_summary_past       -- past-tense narrative (hindsight mode)
+    generate_recommendations    -- present-tense action items
+    generate_observations_past  -- past-tense observations (hindsight mode)
+    call_llm_narrative          -- optional Anthropic / OpenAI narrative
+
+Build tag (bump on every deploy to confirm freshness): v3
 """
+__build__ = "v3"
 import numpy as np
 import pandas as pd
 from ensa.math.meteorology import calculate_spi3
