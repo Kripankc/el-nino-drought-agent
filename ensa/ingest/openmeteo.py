@@ -36,7 +36,12 @@ def fetch_weather(lat: float, lon: float, days_back: int = 400) -> pd.DataFrame:
 def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     """
     Fetches a 14-day weather forecast from Open-Meteo.
+
+    Open-Meteo's forecast endpoint occasionally returns transient 502/503 errors
+    during load spikes. We retry twice with a short backoff before giving up,
+    which catches most short outages.
     """
+    import time
     params = {
         "latitude":      lat,
         "longitude":     lon,
@@ -44,9 +49,17 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
         "forecast_days": days,
         "timezone":      "UTC",
     }
-    r = requests.get(_FORECAST_URL, params=params, timeout=25)
-    r.raise_for_status()
-    return _parse(r.json()["daily"])
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = requests.get(_FORECAST_URL, params=params, timeout=25)
+            r.raise_for_status()
+            return _parse(r.json()["daily"])
+        except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(1.5 ** attempt)  # 1.0s, 1.5s
+    raise last_err
 
 
 def fetch_window(lat: float, lon: float, end_date, days_back: int = 120) -> pd.DataFrame:
