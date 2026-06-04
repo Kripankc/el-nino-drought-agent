@@ -1,84 +1,72 @@
 # ENSOwatch AI
 
-> **Agricultural drought early-warning powered by AI.**
-> Free, open-data, no API keys, no sign-up. Any farm on Earth.
+> **Agricultural drought early-warning, powered by free open data.**
+> Any farm, any date, any crop — no API keys, no sign-up.
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ensa-kripan.streamlit.app/)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 [![Data: ERA5 · NOAA](https://img.shields.io/badge/data-ERA5%20%C2%B7%20NOAA%20CPC-orange.svg)](#data-sources)
 
----
-
-## What ENSOwatch AI does
-
-ENSOwatch AI monitors any farm location on Earth for **ENSO-driven drought risk** (El Niño *and* La Niña phases) and gives the farmer a clear, actionable verdict in plain language.
-
-Click anywhere on the world map, pick a crop, and the dashboard shows:
-
-| | |
-|---|---|
-| **🌾 Farm Status** | A 0–100 drought risk score, plain-English summary, key indicators (rainfall, water deficit, SPI-3, soil moisture, temperature), and a prioritised action list. |
-| **📈 90-Day History** | Monthly rainfall vs crop water requirement, cumulative water balance, soil moisture trend, side-by-side analysis. |
-| **🔮 14-Day Forecast** | Day-by-day rainfall outlook, projected water deficit, model-narrative verdict for the next two weeks. |
-| **🌊 El Niño Impact** | For the picked location, contrasts past El Niño years vs Neutral vs La Niña years (1985–present), with per-year bar chart and current-season verdict. |
-| **🕰️ Hindsight** | Pick any past date and compare what was observed vs the climatology baseline vs the ENSO-aware forecast — tells you whether knowing the ENSO state would have improved the seasonal forecast. |
-| **📖 Methodology** | Full scoring methodology with citations. |
+🔗 **Live app: [ensa-kripan.streamlit.app](https://ensa-kripan.streamlit.app/)**
 
 ---
 
-## Live demo
+## What it does
 
-🔗 **[ensa-kripan.streamlit.app](https://ensa-kripan.streamlit.app/)**
+ENSOwatch AI monitors any farm on Earth for **drought risk driven by El Niño / La Niña / Southern Oscillation (ENSO)**. Click a point on the world map, pick a crop, and you get:
 
-Works on desktop and mobile. No login. Free.
+| Tab | What you see |
+|-----|--------------|
+| **Farm Status** | A 0–100 drought risk score, plain-English summary, 5 key indicators (rainfall, water deficit, SPI-3, soil moisture, temperature) and prioritised actions for this week |
+| **90-Day History** | Monthly rainfall vs crop water requirement, cumulative water balance, soil-moisture trend, temperature trend — each chart paired with a written analysis column |
+| **14-Day Forecast** | Day-by-day rainfall outlook, projected water deficit, two-week balance trajectory |
+| **El Niño Impact** | For this exact location, how growing-season rainfall differs between past El Niño years vs Neutral vs La Niña years (1985–present) |
+| **Historical Analysis** | Pick any past date and see what was observed vs what the climatology baseline predicted vs what an ENSO-aware forecast would have predicted — a hindsight skill assessment |
+| **Methodology** | Full scoring methodology with citations |
+
+When the user picks a date older than 7 days, the dashboard automatically switches to **historical analysis mode** — past tense narrative, no irrigation advice, observations only, with a model-vs-observed comparison panel.
 
 ---
 
 ## Why this matters
 
-The 2023–24 El Niño was among the strongest on record. Southern Africa's 2024 maize harvest collapsed by roughly 40–50% across Zambia, Zimbabwe, and Malawi. Punjab's monsoon was suppressed. Drought-driven food-security crises hit several regions where farmers had no localised early warning.
+The 2023–24 El Niño wiped out roughly 40–50% of the maize harvest across Southern Africa. Punjab's monsoon was suppressed by ~25%. Smallholder farmers had no localised early warning. Commercial agtech platforms exist but cost money and require sign-ups.
 
-Commercial agtech platforms exist, but they cost money, require sign-ups, and many smallholder farmers can't access them. **ENSA is a free, location-aware drought dashboard that runs in any browser — designed for the people who actually need it.**
-
-Built end-to-end on free, public data sources, hosted free on Streamlit Cloud, with no API keys or hidden costs.
+ENSOwatch AI is **free, location-aware, browser-based, and works on any phone**. It's built end-to-end on free public data — no subscriptions, no API keys for the core functionality, no usage limits we can hit.
 
 ---
 
 ## Data sources
 
 | Source | What it provides | Cost |
-|--------|-----------------|------|
-| **[Open-Meteo ERA5 archive](https://open-meteo.com/)** | Daily rainfall, mean temperature, FAO-56 reference evapotranspiration (ET₀), volumetric soil moisture (0–7 cm and 7–28 cm), back to 1940. | Free · No key |
-| **[Open-Meteo Forecast](https://open-meteo.com/)** | 14-day weather forecast (rainfall, temperature, ET₀) for any lat/lon. | Free · No key |
-| **[NOAA CPC NINO3.4](https://www.cpc.ncep.noaa.gov/)** | Monthly Oceanic Niño Index (ONI) — the global El Niño / La Niña indicator. | Free · No key |
-| **[FAO Crop Calendars](https://cropcalendar.apps.fao.org/)** + USDA IPAD + IRRI Rice Knowledge Bank | Region-specific crop growth windows and water requirements (cited in source). | Free · No key |
+|--------|------------------|------|
+| **[Open-Meteo ERA5 archive](https://open-meteo.com/)** | Daily rainfall, temperature, FAO-56 reference evapotranspiration, volumetric soil moisture (0–7 cm and 7–28 cm), back to 1940 | Free · No key |
+| **[Open-Meteo Forecast](https://open-meteo.com/)** | 14-day weather forecast (precipitation, temperature, ET₀) for any lat/lon | Free · No key |
+| **[NOAA CPC NINO3.4](https://www.cpc.ncep.noaa.gov/)** | Monthly Oceanic Niño Index (ONI) — the global El Niño / La Niña indicator | Free · No key |
+| **[FAO Crop Calendar](https://cropcalendar.apps.fao.org/)** + USDA IPAD + IRRI Rice Knowledge Bank | Region-specific crop growing windows, water requirements, critical stages | Static (literature-grounded) |
 
-**No simulated or fallback values are ever shown.** If a data source is offline the dashboard surfaces an error.
+**No simulated or fallback values are shown.** If a data source is offline the dashboard surfaces the error and stops; it never invents data.
 
 ---
 
 ## Methodology
 
-ENSA computes a **0–100 drought risk score** from five components:
+ENSOwatch AI computes a **0–100 drought risk score** from five components:
 
-1. **SPI-3** (McKee et al. 1993) — Standardised Precipitation Index over 90 days, fitted to a Gamma distribution from the full ERA5 daily history. SPI-3 < −1.0 indicates drought onset. *Up to 40 points.*
-
-2. **Cumulative water deficit** — Total ERA5 rainfall minus FAO-56 Penman-Monteith evapotranspiration over 90 days. *Up to 40 points.*
-
-3. **Temperature stress** — Mean temperature above 25 °C accelerates evaporation and crop transpiration demand. *Up to 20 points.*
-
-4. **ENSO amplification** (Ropelewski & Halpert 1987) — If NINO3.4 ≥ +0.5 °C (El Niño developing), the score is multiplied up to ×1.5, reflecting the well-documented teleconnection between Pacific SST anomalies and rainfall in Southern Africa, South Asia, and Australia.
-
-5. **Crop stage weighting** — Flowering, tasseling, panicle initiation, and grain-filling stages are amplified ×1.35 because water stress during pollination causes irreversible yield loss.
+1. **SPI-3** *(McKee et al. 1993)* — Standardised Precipitation Index over 90 days, fitted to a two-parameter Gamma distribution from the full ERA5 daily history. SPI-3 < −1.0 indicates drought onset; < −2.0 indicates severe drought. **Up to 40 points.**
+2. **Cumulative water deficit (P − ET₀)** *(FAO-56)* — Total ERA5 rainfall minus FAO-56 Penman-Monteith reference evapotranspiration over 90 days. **Up to 40 points.**
+3. **Temperature stress** — Mean temperature above 25 °C accelerates evaporation and crop transpiration demand. **Up to 20 points.**
+4. **ENSO amplification** *(Ropelewski & Halpert 1987)* — If NINO3.4 ≥ +0.5 °C (El Niño developing), the score is multiplied up to ×1.5, reflecting the documented teleconnection between Pacific SST anomalies and rainfall in Southern Africa, South Asia, and Australia.
+5. **Crop stage weighting** — Flowering, tasseling, panicle initiation, and grain-filling stages are amplified ×1.35, because water stress during pollination causes irreversible yield loss.
 
 Off-season months apply a ×0.25 dampener — dry conditions during fallow are expected, not a crop emergency.
 
-Detailed methodology, equations, and references are in-app under the **Methodology** tab.
+The full methodology is also available in the **Methodology** tab of the app itself.
 
 ---
 
-## Crops & regions covered
+## Crops & regions
 
 **18 regions** with FAO/USDA-grounded crop calendars and water requirements:
 
@@ -96,7 +84,7 @@ Detailed methodology, equations, and references are in-app under the **Methodolo
 | Myanmar · SE Asia · China · Sri Lanka | Rice · Maize · Cotton · Tea · Cassava |
 | Australia | Wheat · Barley · Canola · Sorghum |
 
-Crop and region are auto-detected from the dropped pin — no setup required.
+The region and crop calendar are auto-detected from the dropped pin — no setup required.
 
 ---
 
@@ -105,19 +93,17 @@ Crop and region are auto-detected from the dropped pin — no setup required.
 ```
 ensa/
 ├── ingest/
-│   ├── openmeteo.py        # ERA5 weather + 14-day forecast + soil moisture
-│   └── enso.py             # NOAA CPC NINO3.4 monthly history & classifier
+│   ├── openmeteo.py        # ERA5 weather + 14-day forecast + soil moisture + climatology + window
+│   └── enso.py             # NOAA CPC NINO3.4 monthly history & ENSO classifier
 ├── analysis/
 │   ├── crop_calendars.py   # FAO/USDA-grounded calendars for 18 regions
-│   ├── elnino.py           # El Niño vs Neutral seasonal comparison
+│   ├── elnino.py           # El Niño vs Neutral vs La Niña seasonal comparison
 │   └── hindsight.py        # Model-vs-observed comparison for past dates
 ├── agent/
-│   └── brain.py            # Drought scoring + plain-English summaries + optional LLM
+│   └── brain.py            # Drought scoring + plain-English summaries + optional AI narrative
 ├── math/
 │   ├── meteorology.py      # SPI-3 (Gamma fit), SPEI
 │   └── pdsi.py             # Palmer Drought Severity Index
-├── core/
-│   └── gatekeeper.py       # Pearson correlation, confidence scoring
 └── dashboard/
     └── app.py              # Streamlit dashboard (entry point)
 ```
@@ -133,20 +119,20 @@ pip install -r requirements.txt
 streamlit run ensa/dashboard/app.py
 ```
 
-That's it — no API keys, no environment variables, no setup. Opens at `http://localhost:8501`.
+Opens at `http://localhost:8501`. No API keys, no environment variables, no setup.
 
 ### Optional: AI-enhanced narrative
-The core dashboard works without any keys. If you want an AI-generated paragraph for each location, paste an **Anthropic** or **OpenAI** API key in the sidebar. The key stays in your session — it's never logged or stored.
+The core dashboard works without any keys. If you want an AI-generated paragraph for each farm, paste an Anthropic or OpenAI API key in the sidebar. The key stays in your session — it is never logged or stored.
 
 ---
 
 ## Deploy your own copy
 
-ENSA is designed for free hosting on [**Streamlit Community Cloud**](https://share.streamlit.io):
+ENSOwatch AI is designed for free hosting on [**Streamlit Community Cloud**](https://share.streamlit.io):
 
 1. Fork this repo to your GitHub
 2. Go to share.streamlit.io and connect your repo
-3. Set the main file path to `ensa/dashboard/app.py`
+3. Set main file path to `ensa/dashboard/app.py`
 4. Choose Python 3.11
 5. Click Deploy
 
@@ -165,34 +151,44 @@ Free hosting forever. Every push to `main` redeploys automatically.
 
 ---
 
-## A note on satellites
-
-ENSOwatch AI does **not currently use Sentinel-2 satellite imagery.** All vegetation and soil moisture indicators come from the ERA5 reanalysis (which itself ingests satellite radiances). Adding real-time NDVI maps from the Sentinel-2 STAC catalog is on the roadmap below.
-
----
-
 ## Roadmap
 
-- [ ] Sentinel-2 NDVI satellite layer (STAC + Planetary Computer) — *not yet integrated*
+- [ ] Sentinel-2 NDVI satellite layer (STAC + Microsoft Planetary Computer) — *not yet integrated*
 - [ ] IRI/CPC seasonal ENSO forecast plume
 - [ ] Multi-language farmer-facing summaries
 - [ ] Email/SMS push for high-risk locations
 - [ ] Custom field polygon upload (GeoJSON)
 
-Contributions welcome — open an issue or PR.
+Contributions welcome — open an issue or a pull request.
+
+---
+
+## A note on the name
+
+The original codebase was called *El Niño Sentinel Agent* (ENSA). The current name **ENSOwatch AI** reflects that the dashboard covers **the full ENSO cycle** — El Niño *and* La Niña *and* Neutral phases — rather than only El Niño events. The "AI" suffix refers to the optional AI-enhanced narrative feature; the core analytical pipeline is deterministic and reproducible.
+
+This dashboard does **not** currently use Sentinel-2 satellite imagery. All vegetation and soil-moisture indicators come from ERA5 reanalysis (which itself assimilates satellite radiances). Sentinel-2 NDVI integration is on the roadmap.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for full text.
+MIT — see [LICENSE](LICENSE) for full text. Free to use, modify, and redistribute. Attribution appreciated but not required.
 
-You may freely use, modify, and redistribute. Attribution appreciated but not required.
+---
+
+## Author
+
+**Kripan K C**
+M.Sc. Environmental Engineering, Technical University of Munich (TUM)
+Student Research Assistant, German Aerospace Center (DLR)
+
+📧 [Kripankc3@gmail.com](mailto:Kripankc3@gmail.com)
 
 ---
 
 ## Acknowledgments
 
-Built on top of open data from **Open-Meteo**, **NOAA Climate Prediction Center**, the **FAO Crop Calendar**, **USDA IPAD**, and **IRRI Rice Knowledge Bank**. None of these organisations endorse this project — but ENSA wouldn't exist without their free public APIs and datasets.
+Built on top of open data from **Open-Meteo**, **NOAA Climate Prediction Center**, the **FAO Crop Calendar**, **USDA IPAD**, and **IRRI Rice Knowledge Bank**. None of these organisations endorse this project — but ENSOwatch AI would not exist without their free public APIs and datasets.
 
 Built with [Streamlit](https://streamlit.io), [folium](https://python-visualization.github.io/folium/), and Python.
