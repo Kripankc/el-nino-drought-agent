@@ -81,15 +81,15 @@ def compute_drought_score(
 
     # ── Alert level ───────────────────────────────────────────────────────
     if score >= 75:
-        level, color, emoji = "Extreme",  "#ff4b4b", "🚨"
+        level, color, emoji = "Extreme",  "#B91C1C", "🚨"
     elif score >= 55:
-        level, color, emoji = "Severe",   "#f7931e", "⚠️"
+        level, color, emoji = "Severe",   "#C2410C", "⚠️"
     elif score >= 35:
-        level, color, emoji = "Warning",  "#fbb03b", "⚡"
+        level, color, emoji = "Warning",  "#B45309", "⚡"
     elif score >= 15:
-        level, color, emoji = "Watch",    "#38bdf8", "👁️"
+        level, color, emoji = "Watch",    "#1E40AF", "👁️"
     else:
-        level, color, emoji = "Normal",   "#38ef7d", "✅"
+        level, color, emoji = "Normal",   "#15803D", "✅"
 
     return {
         "score": score,
