@@ -892,11 +892,22 @@ with tab_status:
         m = folium.Map(location=[lat, lon], zoom_start=7, tiles="OpenStreetMap")
         folium.Marker([lat, lon], tooltip=f"{lat:.4f}°, {lon:.4f}°",
                       icon=folium.Icon(color="green", icon="leaf")).add_to(m)
-        map_out = st_folium(m, height=300, use_container_width=True, key="main_map")
+        # IMPORTANT: returned_objects=["last_clicked"] tells st_folium to ONLY
+        # trigger a Streamlit rerun on map clicks -- not on hover, zoom, or pan.
+        # Without this, every mouse movement over the map re-runs the entire app
+        # and re-fetches all weather data.
+        map_out = st_folium(
+            m,
+            height=300,
+            use_container_width=True,
+            key="main_map",
+            returned_objects=["last_clicked"],
+        )
         if map_out and map_out.get("last_clicked"):
             clat = map_out["last_clicked"]["lat"]
             clon = map_out["last_clicked"]["lng"]
-            if [round(clat,3), round(clon,3)] != [round(lat,3), round(lon,3)]:
+            # Only rerun if the click moved the pin significantly
+            if [round(clat, 3), round(clon, 3)] != [round(lat, 3), round(lon, 3)]:
                 st.session_state.point = [clat, clon]
                 st.session_state.preset_name = "Custom Point"
                 st.rerun()
