@@ -1447,7 +1447,19 @@ with tab_fc:
             f"Date back to today.</div></div>",
             unsafe_allow_html=True)
     elif df_forecast is None or df_forecast.empty:
-        st.warning("Forecast data unavailable. Check internet connection.")
+        st.markdown(
+            "<div style='background:#FEF3C7;border:1px solid #FCD34D;"
+            "border-radius:6px;padding:18px 22px;margin-top:12px'>"
+            "<div style='font-weight:600;color:#92400E;font-size:.95rem;margin-bottom:4px'>"
+            "🌐 Forecast service temporarily unavailable</div>"
+            "<div style='color:#78350F;font-size:.88rem;line-height:1.55'>"
+            "The Open-Meteo forecast endpoint is returning errors right now. "
+            "This is a transient outage on their side — not an issue with the dashboard. "
+            "<b>All other tabs (Farm Status, 90-Day History, El Niño Impact) are working "
+            "normally.</b> The forecast tab will recover automatically when the service is "
+            "back, usually within 15–60 minutes."
+            "</div></div>",
+            unsafe_allow_html=True)
     else:
         fc_precip = float(df_forecast["precip_mm"].sum())
         fc_et0    = float(df_forecast["et0_mm"].sum())
