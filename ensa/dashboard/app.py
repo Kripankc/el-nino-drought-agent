@@ -29,7 +29,9 @@ from ensa.analysis.hindsight import hindsight_compare
 from ensa.agent.brain import (
     compute_drought_score,
     generate_summary,
+    generate_summary_past,
     generate_recommendations,
+    generate_observations_past,
     call_llm_narrative,
 )
 from ensa.db.connection import get_db_connection, init_db
@@ -448,6 +450,21 @@ tab_status, tab_history, tab_fc, tab_elnino, tab_about = st.tabs([
 # TAB 1: FARM STATUS
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_status:
+    # Big banner at top when user is analysing a historical date.
+    if is_past_mode:
+        st.markdown(
+            f"<div style='background:linear-gradient(135deg,#1e293b,#0f172a);"
+            f"border-left:4px solid #58A6FF;border-radius:8px;"
+            f"padding:14px 22px;margin-bottom:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap'>"
+            f"<span style='font-size:1.4rem'>🕰️</span>"
+            f"<span style='color:#58A6FF;font-weight:700;font-size:.78rem;"
+            f"text-transform:uppercase;letter-spacing:.1em'>Historical Analysis Mode</span>"
+            f"<span style='color:#cbd5e1;font-size:.95rem'>"
+            f"Analysing what happened on <b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
+            f" — {days_ago} days ago. "
+            f"All outputs use past observations only. No live actions.</span>"
+            f"</div>", unsafe_allow_html=True)
+
     col_map, col_info = st.columns([3,1])
 
     with col_map:
@@ -554,27 +571,39 @@ with tab_status:
 
     with col_summary:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        summary_text = generate_summary(assessment, crop_choice, crop_stage, score_oni["phase"],
-                                        st.session_state.preset_name)
-        if is_past_mode and score_oni is not oni:
-            st.caption(
-                f"📅 As-of {assessment_date.strftime('%b %Y')}: "
-                f"NINO3.4 was {score_oni['value']:+.2f}°C ({score_oni['phase']})."
-            )
+        if is_past_mode:
+            summary_text = generate_summary_past(
+                assessment, crop_choice, crop_stage, score_oni["phase"],
+                st.session_state.preset_name,
+                assessment_date.strftime("%d %B %Y"))
+            if score_oni is not oni:
+                st.caption(
+                    f"📅 ENSO state at the time: "
+                    f"NINO3.4 was {score_oni['value']:+.2f}°C ({score_oni['phase']})."
+                )
+        else:
+            summary_text = generate_summary(
+                assessment, crop_choice, crop_stage, score_oni["phase"],
+                st.session_state.preset_name)
         st.markdown(f"<p style='font-size:1.05rem;line-height:1.7;color:#e2e8f0'>{summary_text}</p>",
                     unsafe_allow_html=True)
 
         if satisfaction_pct is not None:
             bar_color = "#ef4444" if satisfaction_pct < 50 else ("#f59e0b" if satisfaction_pct < 80 else "#22c55e")
             bar_w = min(100, satisfaction_pct)
+            sat_label = ("Crop Water Needs Met (90 days ending the picked date)"
+                         if is_past_mode else "Crop Water Needs Met (last 90 days)")
+            verb_recv = "Rain that fell" if is_past_mode else "Rain received"
+            verb_need = "Crop needed"
+            verb_met  = "% met"
             st.markdown(
                 f"<div style='margin-top:14px'>"
-                f"<div class='kpi-label'>Crop Water Needs Met (last 90 days)</div>"
+                f"<div class='kpi-label'>{sat_label}</div>"
                 f"<div class='sat-bar-wrap'><div class='sat-bar-fill' style='width:{bar_w:.0f}%;background:{bar_color}'></div></div>"
                 f"<div style='font-size:.85rem;color:#a0aec0'>"
-                f"Rain received: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
-                f"Crop needed: <b style='color:#fff'>{needed:.0f} mm</b> · "
-                f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}% met</b></div>"
+                f"{verb_recv}: <b style='color:#fff'>{precip_90:.0f} mm</b> · "
+                f"{verb_need}: <b style='color:#fff'>{needed:.0f} mm</b> · "
+                f"<b style='color:{bar_color}'>{satisfaction_pct:.0f}{verb_met}</b></div>"
                 f"</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -753,10 +782,20 @@ with tab_status:
             "<div class='kpi-sub'>ERA5 soil layer fetch failed</div></div>",
             unsafe_allow_html=True)
 
-    # ── RECOMMENDATIONS ──────────────────────────────────────────────────
-    st.markdown("### What to do")
-    for rec in generate_recommendations(assessment, crop_choice, crop_stage, oni_v):
-        st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
+    # ── RECOMMENDATIONS / OBSERVATIONS ──────────────────────────────────
+    if is_past_mode:
+        st.markdown(f"### 📋 What was observed on {assessment_date.strftime('%d %b %Y')}")
+        st.caption("Evidence-based observations of what likely happened to the "
+                   "crop during this 90-day window. No live action items — this "
+                   "is a historical analysis.")
+        for obs in generate_observations_past(
+                assessment, crop_choice, crop_stage, score_oni_v,
+                assessment_date.strftime("%d %B %Y")):
+            st.markdown(f"<div class='rec-item'>{obs}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("### What to do")
+        for rec in generate_recommendations(assessment, crop_choice, crop_stage, oni_v):
+            st.markdown(f"<div class='rec-item'>{rec}</div>", unsafe_allow_html=True)
 
     # ── AI ANALYSIS ──────────────────────────────────────────────────────
     with st.expander("🤖 AI-Enhanced Analysis (optional)"):
@@ -801,11 +840,27 @@ with tab_history:
     if not data_ok:
         st.warning(f"No data. {weather_error or ''}")
     else:
-        df90 = df_weather.tail(90)
+        # Historical analysis mode: anchor charts on the user's picked date
+        # using the previously computed df_slice (which is either df_weather
+        # or a dedicated archive window for older dates).
+        if is_past_mode:
+            st.markdown(
+                f"<div style='background:#0f172a;border-left:3px solid #58A6FF;"
+                f"padding:10px 16px;border-radius:6px;margin-bottom:14px;"
+                f"font-size:.88rem;color:#cbd5e1'>"
+                f"🕰️ Showing the 90 days ending on "
+                f"<b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
+                f" (historical analysis).</div>",
+                unsafe_allow_html=True)
+            df_hist_source = df_slice
+        else:
+            df_hist_source = df_weather
+
+        df90 = df_hist_source.tail(90)
         t_lo, t_hi = cal["optimal_temp"]
 
         # ── Pre-compute insights ─────────────────────────────────────────
-        df_m = df_weather.tail(180).copy()
+        df_m = df_hist_source.tail(180).copy() if len(df_hist_source) >= 180 else df_hist_source.copy()
         df_m["ym"] = df_m["date"].dt.to_period("M")
         monthly_sum = df_m.groupby("ym").agg(
             rain=("precip_mm","sum"), n=("precip_mm","count")).reset_index()
@@ -838,7 +893,7 @@ with tab_history:
         st.subheader("Monthly Rainfall vs Crop Water Requirement")
         c_chart, c_insight = st.columns([3, 2])
         with c_chart:
-            fig_m = _monthly_bar_chart(df_weather.tail(180), cal["daily_demand_mm"], cal)
+            fig_m = _monthly_bar_chart(df_m, cal["daily_demand_mm"], cal)
             st.pyplot(fig_m, use_container_width=True); plt.close(fig_m)
             st.caption("🟢 Adequate · 🟡 Below optimal · 🔴 Critical deficit · ⬛ Off-season  ╌╌  Dashed line = crop water need")
         with c_insight:
@@ -865,7 +920,7 @@ with tab_history:
         st.subheader("Cumulative Water Balance — Last 90 Days")
         c_chart2, c_insight2 = st.columns([3, 2])
         with c_chart2:
-            fig_wb = _water_balance_chart(df_weather)
+            fig_wb = _water_balance_chart(df_hist_source)
             st.pyplot(fig_wb, use_container_width=True); plt.close(fig_wb)
             st.caption("Daily rainfall minus evaporation (ERA5 Penman-Monteith ET₀), cumulated over 90 days.")
         with c_insight2:
@@ -981,7 +1036,21 @@ with tab_history:
 # TAB 3: 14-DAY FORECAST
 # ═══════════════════════════════════════════════════════════════════════════
 with tab_fc:
-    if df_forecast is None or df_forecast.empty:
+    if is_past_mode:
+        st.markdown(
+            f"<div style='background:#1e293b;border:1px solid #475569;"
+            f"border-radius:10px;padding:30px;text-align:center;margin-top:20px'>"
+            f"<div style='font-size:2.5rem;margin-bottom:10px'>🚫</div>"
+            f"<div style='color:#cbd5e1;font-size:1.05rem;margin-bottom:6px'>"
+            f"<b>Forecast not applicable for historical dates</b></div>"
+            f"<div style='color:#94a3b8;font-size:.92rem;line-height:1.5;max-width:520px;"
+            f"margin:0 auto'>"
+            f"You are analysing <b style='color:#fff'>{assessment_date.strftime('%d %B %Y')}</b>"
+            f" — a past date. A 14-day forecast only makes sense from today forward.<br><br>"
+            f"To see the live 14-day forecast for your farm location, set the Assessment "
+            f"Date back to today.</div></div>",
+            unsafe_allow_html=True)
+    elif df_forecast is None or df_forecast.empty:
         st.warning("Forecast data unavailable. Check internet connection.")
     else:
         fc_precip = float(df_forecast["precip_mm"].sum())
@@ -1256,12 +1325,18 @@ with tab_about:
     st.markdown("""
 | Source | Variable | Update |
 |--------|----------|--------|
-| **Open-Meteo ERA5 archive** | Daily rainfall (mm), mean temperature (°C), FAO-56 reference evapotranspiration ET₀ (mm) | Daily, 5-day lag |
+| **Open-Meteo ERA5 archive** | Daily rainfall (mm), mean temperature (°C), FAO-56 reference evapotranspiration ET₀ (mm), volumetric soil moisture (0–7 cm and 7–28 cm) | Daily, 5-day lag |
 | **Open-Meteo Forecast** | 14-day precipitation, temperature, ET₀ | Daily |
-| **NOAA CPC NINO3.4** | Monthly SST anomaly (El Niño / La Niña intensity) | Monthly |
+| **NOAA CPC NINO3.4** | Monthly Oceanic Niño Index (SST anomaly) | Monthly |
+| **FAO / USDA / IRRI crop calendars** | Region-specific growing windows, water requirements, critical stages | Static (literature-grounded) |
 
-All three sources are free and require no registration or API key.
+All four sources are free and require no registration or API key.
 No simulated or fallback values are shown — if a data source is offline the dashboard shows an error.
+
+> **A note on "Sentinel":** The name *El Niño **Sentinel** Agent* uses "Sentinel" in the
+> classical sense of *watcher / early-warning guard*. **This dashboard does not currently
+> use Sentinel-2 satellite imagery.** Real-time NDVI from the Sentinel-2 / Microsoft
+> Planetary Computer STAC is on the roadmap for a future release.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
