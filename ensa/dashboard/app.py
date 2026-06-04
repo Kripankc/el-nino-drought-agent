@@ -293,9 +293,29 @@ header[data-testid="stHeader"] { background: transparent !important;
     border: 1px solid #D1D5DB !important;
 }
 
-/* ---- Date input ---------------------------------------------------- */
-.stDateInput > div > div { background: #FFFFFF !important; border: 1px solid #D1D5DB !important; }
-.stDateInput input { color: #1F2937 !important; background: transparent !important; }
+/* ---- Date input (target every nested wrapper Streamlit emits) ---- */
+.stDateInput, .stDateInput * { background-color: transparent !important; }
+.stDateInput [data-baseweb="input"],
+.stDateInput [data-baseweb="input"] > div {
+    background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 4px !important;
+}
+.stDateInput input { color: #1F2937 !important; background: #FFFFFF !important; }
+.stDateInput [data-baseweb="input"] svg { fill: #6B7280 !important; }
+
+/* ---- Text input (API key field + eye icon) ----------------------- */
+.stTextInput [data-baseweb="input"],
+.stTextInput [data-baseweb="input"] > div {
+    background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 4px !important;
+}
+.stTextInput input { background: #FFFFFF !important; color: #1F2937 !important; }
+/* Eye icon (password visibility toggle) — kill dark background */
+.stTextInput button { background: #FFFFFF !important; border: none !important; }
+.stTextInput button:hover { background: #F3F4F6 !important; }
+.stTextInput button svg { fill: #6B7280 !important; color: #6B7280 !important; }
 
 /* ---- Sidebar select / inputs -------------------------------------- */
 [data-testid="stSidebar"] [data-baseweb="select"] > div {
@@ -769,6 +789,20 @@ st.sidebar.markdown(
     "margin-top:18px;line-height:1.5;border-top:1px solid #E5E7EB;padding-top:12px'>"
     "Weather: Open-Meteo ERA5<br>ENSO: NOAA CPC<br>"
     "<span style='color:#6B7280'>All data is real — no simulations.</span></div>",
+    unsafe_allow_html=True)
+
+# ── Author / attribution block ─────────────────────────────────────────────
+st.sidebar.markdown(
+    "<div style='font-size:.72rem;color:#475569;text-align:center;"
+    "margin-top:14px;line-height:1.55;border-top:1px solid #E5E7EB;padding-top:12px'>"
+    "<div style='font-weight:600;color:#111827;font-size:.78rem;"
+    "font-family:IBM Plex Serif,Georgia,serif'>Kripan K C</div>"
+    "<div style='margin-top:2px'>M.Sc. Environmental Engineering, TUM</div>"
+    "<div>Student Research Assistant, DLR</div>"
+    "<a href='mailto:Kripankc3@gmail.com' "
+    "style='color:#003D5C;text-decoration:none;font-weight:500;"
+    "margin-top:4px;display:inline-block'>Kripankc3@gmail.com</a>"
+    "</div>",
     unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
