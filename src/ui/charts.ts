@@ -9,7 +9,7 @@ export function theme() {
     ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), grid: v("--grid"), axis: v("--axis"),
     surface: v("--surface"), this: v("--s-this"), cmp: v("--s-cmp"), need: v("--s-need"),
     band: v("--band"), nino: v("--nino"), nina: v("--nina"), neutral: v("--neutral"),
-    dry: v("--dry"), wet: v("--wet"),
+    dry: v("--dry"), wet: v("--wet"), sprout: v("--sprout"),
   };
 }
 
