@@ -1,0 +1,50 @@
+{
+  "notes": [
+    "Kc values: FAO Irrigation and Drainage Paper 56 (Allen, Pereira, Raes & Smith 1998), Table 12. Where Table 12 gives a range, the midpoint is used and the range is kept in kc_range. Where Kc ini is only given at crop-group level, the group value is used.",
+    "Stage lengths: FAO-56 Table 11, one representative row per crop (region and planting month recorded in stage_row). Only the PROPORTIONS are used: they are scaled to the local season length from the GGCMI Phase 3 calendar.",
+    "Heat thresholds are daily-maximum temperature indicators taken from the cited studies. Schlenker & Roberts (2009) estimate thresholds from within-day temperature exposure; counting days with Tmax above the threshold is a simpler proxy.",
+    "Values were transcribed from FAO-56 and the cited papers; check them against the originals before citing this file."
+  ],
+  "ggcmi_to_param": {
+    "mai": "maize", "ri1": "rice", "ri2": "rice", "swh": "wheat_spring", "wwh": "wheat_winter",
+    "soy": "soybean", "sor": "sorghum", "mil": "millet", "bar": "barley", "cas": "cassava",
+    "pot": "potato", "nut": "groundnut", "cot": "cotton", "sgc": "sugarcane", "sgb": "sugarbeet",
+    "sun": "sunflower", "rap": "rapeseed", "bea": "beans", "pea": "peas", "rye": "rye"
+  },
+  "ggcmi_labels": {
+    "mai": "Maize", "ri1": "Rice (main season)", "ri2": "Rice (second season)",
+    "swh": "Spring wheat", "wwh": "Winter wheat", "soy": "Soybean", "sor": "Sorghum",
+    "mil": "Millet", "bar": "Barley", "cas": "Cassava", "pot": "Potato", "nut": "Groundnut",
+    "cot": "Cotton", "sgc": "Sugarcane", "sgb": "Sugar beet", "sun": "Sunflower",
+    "rap": "Rapeseed", "bea": "Beans", "pea": "Peas", "rye": "Rye"
+  },
+  "params": {
+    "maize":        {"kc": [0.30, 1.20, 0.475], "kc_range": "ini 0.30 (cereals group); mid 1.20; end 0.60-0.35", "stages": [30, 40, 50, 30], "stage_row": "Maize (grain), April, Spain / California", "heat_c": 29, "heat_ref": "schlenker2009"},
+    "rice":         {"kc": [1.05, 1.20, 0.75], "kc_range": "ini 1.05; mid 1.20; end 0.90-0.60", "stages": [30, 30, 60, 30], "stage_row": "Rice, Dec/May, Tropics / Mediterranean", "heat_c": 35, "heat_ref": "yoshida1981"},
+    "wheat_spring": {"kc": [0.30, 1.15, 0.33], "kc_range": "ini 0.30 (cereals group); mid 1.15; end 0.25-0.40", "stages": [20, 25, 60, 30], "stage_row": "Barley/Oats/Wheat, March/April, 35-45 deg latitude", "heat_c": 34, "heat_ref": "lobell2012"},
+    "wheat_winter": {"kc": [0.55, 1.15, 0.33], "kc_range": "ini 0.4 (frozen soils) to 0.7; mid 1.15; end 0.25-0.40", "stages": [30, 140, 40, 30], "stage_row": "Winter wheat, November, Mediterranean", "heat_c": 34, "heat_ref": "lobell2012"},
+    "barley":       {"kc": [0.30, 1.15, 0.25], "kc_range": "ini 0.30 (cereals group); mid 1.15; end 0.25", "stages": [15, 25, 50, 30], "stage_row": "Barley/Oats/Wheat, November, Central India", "heat_c": null, "heat_ref": null},
+    "soybean":      {"kc": [0.40, 1.15, 0.50], "kc_range": "ini 0.40 (legumes group); mid 1.15; end 0.50", "stages": [15, 15, 40, 15], "stage_row": "Soybeans, December, Tropics", "heat_c": 30, "heat_ref": "schlenker2009"},
+    "sorghum":      {"kc": [0.30, 1.05, 0.55], "kc_range": "ini 0.30 (cereals group); mid 1.00-1.10; end 0.55", "stages": [20, 35, 40, 30], "stage_row": "Sorghum (grain), May/June, USA / Pakistan / Mediterranean", "heat_c": null, "heat_ref": null},
+    "millet":       {"kc": [0.30, 1.00, 0.30], "kc_range": "ini 0.30 (cereals group); mid 1.00; end 0.30", "stages": [15, 25, 40, 25], "stage_row": "Millet, June, Pakistan", "heat_c": null, "heat_ref": null},
+    "cassava":      {"kc": [0.30, 0.80, 0.30], "kc_range": "year 1: ini 0.30; mid 0.80; end 0.30", "stages": [20, 40, 90, 60], "stage_row": "Cassava year 1, rainy season, tropical regions", "heat_c": null, "heat_ref": null},
+    "potato":       {"kc": [0.50, 1.15, 0.75], "kc_range": "ini 0.50 (roots and tubers group); mid 1.15; end 0.75", "stages": [25, 30, 45, 30], "stage_row": "Potato, Jan/Nov, semi-arid climate", "heat_c": null, "heat_ref": null},
+    "groundnut":    {"kc": [0.40, 1.15, 0.60], "kc_range": "ini 0.40 (legumes group); mid 1.15; end 0.60", "stages": [25, 35, 45, 25], "stage_row": "Groundnut, dry season, West Africa", "heat_c": null, "heat_ref": null},
+    "cotton":       {"kc": [0.35, 1.175, 0.60], "kc_range": "ini 0.35; mid 1.15-1.20; end 0.70-0.50", "stages": [30, 50, 60, 55], "stage_row": "Cotton, Mar-May, Egypt / Pakistan / California", "heat_c": 32, "heat_ref": "schlenker2009"},
+    "sugarcane":    {"kc": [0.40, 1.25, 0.75], "kc_range": "ini 0.40; mid 1.25; end 0.75", "stages": [35, 60, 190, 120], "stage_row": "Sugarcane (virgin), low latitudes", "heat_c": null, "heat_ref": null},
+    "sugarbeet":    {"kc": [0.35, 1.20, 0.70], "kc_range": "ini 0.35; mid 1.20; end 0.70", "stages": [30, 45, 90, 15], "stage_row": "Sugar beet, March, California", "heat_c": null, "heat_ref": null},
+    "sunflower":    {"kc": [0.35, 1.075, 0.35], "kc_range": "ini 0.35 (oil crops group); mid 1.0-1.15; end 0.35", "stages": [25, 35, 45, 25], "stage_row": "Sunflower, April/May, Mediterranean / California", "heat_c": null, "heat_ref": null},
+    "beans":        {"kc": [0.40, 1.15, 0.35], "kc_range": "ini 0.40; mid 1.15; end 0.35", "stages": [20, 30, 40, 20], "stage_row": "Beans (dry), May/June, continental climates", "heat_c": null, "heat_ref": null},
+    "peas":         {"kc": [0.40, 1.15, 0.30], "kc_range": "ini 0.40 (legumes group); mid 1.15; end 0.30", "stages": [15, 25, 35, 15], "stage_row": "Peas, May, Europe", "heat_c": null, "heat_ref": null},
+    "rapeseed":     {"kc": [0.35, 1.075, 0.35], "kc_range": "ini 0.35 (oil crops group); mid 1.0-1.15; end 0.35", "stages": null, "stage_row": "No Table 11 row; water need not computed", "heat_c": null, "heat_ref": null},
+    "rye":          {"kc": null, "kc_range": "Not listed as a grain crop in Table 12; water need not computed", "stages": null, "stage_row": null, "heat_c": null, "heat_ref": null}
+  },
+  "references": {
+    "fao56": "Allen, R.G., Pereira, L.S., Raes, D. & Smith, M. (1998) Crop evapotranspiration: guidelines for computing crop water requirements. FAO Irrigation and Drainage Paper 56. Rome: FAO.",
+    "schlenker2009": "Schlenker, W. & Roberts, M.J. (2009) Nonlinear temperature effects indicate severe damages to U.S. crop yields under climate change. PNAS 106(37), 15594-15598.",
+    "yoshida1981": "Yoshida, S. (1981) Fundamentals of Rice Crop Science. Los Banos: IRRI. (Spikelet sterility with temperatures above about 35 C at anthesis.)",
+    "lobell2012": "Lobell, D.B., Sibley, A. & Ortiz-Monasterio, J.I. (2012) Extreme heat effects on wheat senescence in India. Nature Climate Change 2, 186-189. (Uses 34 C.)",
+    "fao33": "Doorenbos, J. & Kassam, A.H. (1979) Yield response to water. FAO Irrigation and Drainage Paper 33. Rome: FAO.",
+    "usda_scs": "USDA Soil Conservation Service effective-rainfall method as implemented in FAO CROPWAT: Peff = P(125 - 0.2P)/125 for P <= 250 mm/month; Peff = 125 + 0.1P otherwise."
+  }
+}
