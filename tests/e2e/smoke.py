@@ -178,10 +178,10 @@ def main():
                 pg.route("**/*", handler)
                 pg.goto(f"http://localhost:{PORT}/{query}")
                 pg.wait_for_function("document.getElementById('status').textContent.startsWith('Done') || document.getElementById('status').classList.contains('error')", timeout=60000)
-                btn = pg.get_by_text("Load El Niño history for this place")
+                btn = pg.get_by_text("Show past El Niño seasons here")
                 if btn.count():
                     btn.click()
-                    pg.wait_for_function("!document.body.innerText.includes('Loading…')", timeout=60000)
+                    pg.wait_for_function("!document.body.innerText.includes('Loading 75 years')", timeout=60000)
                     pg.wait_for_timeout(500)
                 print(name, "status:", pg.inner_text("#status"))
                 pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)

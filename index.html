@@ -9,29 +9,32 @@
 <body>
   <div class="wrap">
     <header class="site">
-      <h1>ENSOwatch</h1>
-      <p>Weather, crop seasons, crop water needs and El Niño history for any farm location.</p>
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-7"/><path d="M12 13c0-3.5 2.6-5.5 6-5.5 0 3.5-2.6 5.5-6 5.5z"/><path d="M12 15c0-2.8-2.2-4.5-5-4.5 0 2.8 2.2 4.5 5 4.5z"/><path d="M3 20c1.5 0 1.5-1.2 3-1.2s1.5 1.2 3 1.2 1.5-1.2 3-1.2 1.5 1.2 3 1.2 1.5-1.2 3-1.2 1.5 1.2 3 1.2"/></svg></div>
+      <div>
+        <h1>ENSOwatch</h1>
+        <p>Weather, crops, water and El Niño for any farm</p>
+      </div>
     </header>
 
     <form class="controls" id="controls" autocomplete="off">
-      <label class="grow">Place
-        <input id="q" type="search" placeholder="Village, district or 'lat, lon'" />
-      </label>
-      <button type="submit">Search</button>
+      <div class="searchbox">
+        <input id="q" type="search" placeholder="Search a village or district, or tap the map" aria-label="Place" />
+        <button type="submit">Search</button>
+      </div>
       <label>Date
         <input id="date" type="date" min="1950-01-01" />
       </label>
-      <label>Crop
+      <label class="crop">Crop
         <select id="crop" disabled><option>Pick a place first</option></select>
       </label>
-      <label>Compare with season
+      <label>Compare with
         <select id="cmp" disabled><option value="">None</option></select>
       </label>
       <ul id="results"></ul>
     </form>
 
     <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
-    <p class="status" id="status" aria-live="polite">Search for a place or click the map.</p>
+    <p class="status" id="status" aria-live="polite">Search for a place or tap the map.</p>
 
     <main id="report"></main>
 

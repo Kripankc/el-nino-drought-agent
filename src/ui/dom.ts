@@ -1,36 +1,76 @@
 // Tiny DOM helpers. Untrusted text (place names, API strings) always goes in via textContent.
+import { icon } from "./icons";
+
+type Child = Node | string | null | undefined | false;
+
 export function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K, attrs: Record<string, string> = {}, ...children: (Node | string | null | undefined)[]
+  tag: K, attrs: Record<string, string> = {}, ...children: Child[]
 ): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") e.className = v;
     else e.setAttribute(k, v);
   }
-  for (const c of children) if (c != null) e.append(typeof c === "string" ? document.createTextNode(c) : c);
+  for (const c of children) if (c != null && c !== false) e.append(typeof c === "string" ? document.createTextNode(c) : c);
   return e;
 }
 
-export function block(parent: HTMLElement, title: string, id?: string): HTMLElement {
-  const s = el("section", { class: "block", ...(id ? { id } : {}) }, el("h2", {}, title));
-  parent.append(s);
-  return s;
+let uid = 0;
+
+/**
+ * A section card: icon + title, and an (i) button that reveals `info` panel.
+ * Returns the section; append content to it. Add explanatory text with `info()`.
+ */
+export interface Block { sec: HTMLElement; body: HTMLElement; info: (...nodes: Child[]) => void }
+
+export function block(parent: HTMLElement, title: string, opts: { id?: string; icon?: string } = {}): Block {
+  const id = opts.id ?? `s${++uid}`;
+  const panel = el("div", { class: "info-panel", id: `${id}-info`, hidden: "" });
+  const btn = el("button", { class: "info-btn", type: "button", "aria-expanded": "false", "aria-controls": `${id}-info`, "aria-label": `About: ${title}`, title: "More information" }, icon("info", 20));
+  btn.addEventListener("click", () => {
+    const open = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", String(!open));
+    panel.hidden = open;
+    if (!open) repaintAll();
+  });
+  const head = el("div", { class: "block-head" },
+    opts.icon ? el("span", { class: "block-ico" }, icon(opts.icon, 22)) : null,
+    el("h2", {}, title), btn);
+  btn.hidden = true; // shown once info is added
+  const body = el("div", { class: "block-body" });
+  const sec = el("section", { class: "block", id }, head, panel, body);
+  parent.append(sec);
+  return {
+    sec, body,
+    info: (...nodes: Child[]) => {
+      btn.hidden = false;
+      for (const n of nodes) if (n != null && n !== false) panel.append(typeof n === "string" ? el("p", {}, n) : n);
+    },
+  };
+}
+
+/** Collapsible "show more" area (details/summary), repaints charts when opened. */
+export function more(label: string, ...children: Child[]): HTMLDetailsElement {
+  const d = el("details", { class: "more" }, el("summary", {}, label), ...children);
+  d.addEventListener("toggle", () => { if (d.open) repaintAll(); });
+  return d;
 }
 
 export function note(text: string, cls = "note"): HTMLElement {
   return el("p", { class: cls }, text);
 }
 
-export function stat(value: string, label: string): HTMLElement {
-  return el("div", { class: "stat" }, el("div", { class: "v" }, value), el("div", { class: "l" }, label));
+export function srcLine(text: string): HTMLElement {
+  return el("p", { class: "src" }, text);
 }
 
-// Charts are re-drawn at the container width on resize and on colour-scheme change.
+// Charts are re-drawn at the container width on resize, on colour-scheme change
+// and when a hidden container is opened.
 type Redraw = { host: HTMLElement; draw: (w: number) => Node };
 let charts: Redraw[] = [];
 
-export function chart(parent: HTMLElement, draw: (w: number) => Node): HTMLElement {
-  const host = el("div", { class: "chart" });
+export function chart(parent: HTMLElement, draw: (w: number) => Node, cls = "chart"): HTMLElement {
+  const host = el("div", { class: cls });
   parent.append(host);
   const r = { host, draw };
   charts.push(r);
@@ -39,14 +79,16 @@ export function chart(parent: HTMLElement, draw: (w: number) => Node): HTMLEleme
 }
 
 function paint(r: Redraw) {
-  const w = Math.max(280, Math.floor(r.host.clientWidth || r.host.parentElement?.clientWidth || 600));
+  const cw = r.host.clientWidth;
+  if (!cw && r.host.childElementCount) return; // hidden: keep, redraw when shown
+  const w = Math.max(260, Math.floor(cw || 600));
   r.host.replaceChildren(r.draw(w));
 }
 
 export function resetCharts() { charts = []; }
 
 let timer: number | undefined;
-function repaintAll() {
+export function repaintAll() {
   charts = charts.filter((r) => r.host.isConnected);
   charts.forEach(paint);
 }
