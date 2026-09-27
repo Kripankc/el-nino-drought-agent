@@ -117,7 +117,7 @@ export function buildAdvice(x: AdviceInput): Advice[] {
       out.push({
         title: "El Niño is developing",
         trigger: now,
-        action: "Load the El Niño history below to see how past El Niño seasons went for this crop at this place.",
+        action: "Open the El Niño tab to see how past El Niño seasons went for this crop here.",
         source: "NOAA CPC Relative Oceanic Niño Index",
       });
     } else if (n.n >= 5 && n.medianRainPct < 0 && (c.pRainNinoVsNeutral < 0.05 || n.drierCount / n.n >= 0.6)) {

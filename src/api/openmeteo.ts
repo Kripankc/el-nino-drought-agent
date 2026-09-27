@@ -159,7 +159,7 @@ export async function seasonalMonthly(lat: number, lon: number, status?: Status)
       precipMm: mean,
       precipAnomMm: anom,
       tAnom: ta ? (m[ta][i] as number | null) : null,
-      precipPct: clim != null && clim > 1 && anom != null ? (100 * anom) / clim : null,
+      precipPct: clim != null && clim >= 10 && anom != null ? (100 * anom) / clim : null, // % is meaningless in near-dry months
     };
   });
 }
