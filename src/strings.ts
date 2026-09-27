@@ -4,11 +4,11 @@ export const S = {
   status: {
     idle: "Search for a place or click the map.",
     crops: "Loading crop map and calendar…",
-    clim: "Loading ERA5 daily data 1991–2020 for the normal range (about 0.5 MB, cached after the first time)…",
+    clim: "Loading ERA5 daily data 1991–2020 for the normal range (cached in this browser after the first time)…",
     season: "Loading ERA5 data for this season…",
     forecast: "Loading forecasts…",
     done: "Done.",
-    enso: "Loading ERA5 daily rainfall and temperature 1950–1990 and 2021–today…",
+    enso: "Loading ERA5 daily rainfall and maximum temperature 1950–1990 and 2021–today…",
   },
   h: {
     here: "What grows here",

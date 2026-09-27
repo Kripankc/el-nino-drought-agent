@@ -10,6 +10,7 @@ import { Composite, EnsoData, composite, episodeMonths, indexValue, seasonPhase 
 import { finite, median, percentileRank, quantile } from "../calc/stats";
 import { Advice, buildAdvice } from "../calc/advice";
 import { S } from "../strings";
+import { cropName } from "../lib/cropnames";
 import { block, chart, el, fmt, note, resetCharts, stat } from "./dom";
 import { anomalyBars, compositeDots, ensoTimeline, forecastRain, legend, r1, tableView, theme, timeChart } from "./charts";
 import type { State } from "../main";
@@ -80,7 +81,7 @@ export async function renderReport(c: RenderCtx) {
   let cmp: { season: Season; data: Daily } | null = null;
   if (c.cal && c.state.cmp) {
     const cs = seasonForYear(c.cal, c.state.cmp);
-    const d = (await era5Daily(c.state.lat!, c.state.lon!, cs.plant, cs.harvest, ["precip", "tmax", "tmin", "et0"])).data;
+    const d = (await era5Daily(c.state.lat!, c.state.lon!, cs.plant, cs.harvest, ["precip", "tmax"])).data;
     cmp = { season: cs, data: d };
     if (!c.alive()) return;
   }
@@ -189,7 +190,7 @@ function renderHere(b: HTMLElement, c: RenderCtx) {
         return `${lab} (${sys}): ${doyLabel(pd)} – ${doyLabel(md)}`;
       }).join("; ") : "not in GGCMI";
       tb.append(el("tr", {},
-        el("td", {}, cap(cr.name)),
+        el("td", {}, cropName(cr.name)),
         el("td", { class: "num" }, `${Math.round(cr.ha).toLocaleString("en")} ha`),
         el("td", { class: "num" }, `${Math.round(cr.share * 100)}%`),
         el("td", {}, calTxt)));
@@ -202,7 +203,6 @@ function renderHere(b: HTMLElement, c: RenderCtx) {
   b.append(src("CROPGRIDS v1.08, harvested area circa 2020 (Tang et al. 2024), aggregated to 0.25°. Calendars: GGCMI Phase 3 (Jägermeyr et al. 2021), 0.5°."));
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 function doyLabel(doy: number): string {
   const d = toDate(toDay("2001-01-01") + doy - 1);
   return `${d.getUTCDate()} ${monthName(d.getUTCMonth() + 1)}`;
@@ -587,8 +587,8 @@ function renderEnso(b: HTMLElement, c: RenderCtx, D: Day, current: boolean, seas
       const lat = c.state.lat!;
       const lon = c.state.lon!;
       const [a1, a2] = await Promise.all([
-        era5Daily(lat, lon, toDay("1950-01-01"), toDay("1990-12-31"), ["precip", "tmax", "tmin"], (msg) => c.setStatus(msg)),
-        era5Daily(lat, lon, toDay("2021-01-01"), lastEra5Day(), ["precip", "tmax", "tmin"], (msg) => c.setStatus(msg)),
+        era5Daily(lat, lon, toDay("1950-01-01"), toDay("1990-12-31"), ["precip", "tmax"], (msg) => c.setStatus(msg)),
+        era5Daily(lat, lon, toDay("2021-01-01"), lastEra5Day(), ["precip", "tmax"], (msg) => c.setStatus(msg)),
       ]);
       if (!c.alive()) return;
       const all = mergeDaily([a1.data, c.clim, a2.data]);
@@ -611,29 +611,31 @@ function renderEnso(b: HTMLElement, c: RenderCtx, D: Day, current: boolean, seas
   void seasonPhase;
 }
 
+const pFmt = (p: number) => (p < 0.001 ? "<0.001" : p.toFixed(3));
+
 function renderComposite(b: HTMLElement, comp: Composite, what: string, highlight: number[]) {
   const n = comp.byPhase["El Nino"];
   const neu = comp.byPhase["Neutral"];
   const sig = comp.pRainNinoVsNeutral < 0.05;
   const dir = n.medianRainPct < neu.medianRainPct ? "drier" : "wetter";
-  const pTxt = `permutation test p = ${comp.pRainNinoVsNeutral < 0.001 ? "<0.001" : comp.pRainNinoVsNeutral.toFixed(3)}`;
+  const pTxt = `rank test p = ${pFmt(comp.pRainNinoVsNeutral)}`;
   b.append(el("p", { class: "lead" }, n.n === 0
     ? "No El Niño season in the record for this crop season."
     : sig
       ? `El Niño seasons here were ${dir} than neutral seasons: median ${fmt.pct(n.medianRainPct)} vs ${fmt.pct(neu.medianRainPct)} against the 1991–2020 normal. ${n.drierCount} of ${n.n} El Niño seasons were below normal (${pTxt}).`
-      : `No clear El Niño effect on rainfall in ${what}: median ${fmt.pct(n.medianRainPct)} in El Niño seasons vs ${fmt.pct(neu.medianRainPct)} in neutral seasons; ${n.drierCount} of ${n.n} El Niño seasons were below normal (${pTxt}).`));
+      : `Rainfall in ${what} during El Niño seasons was not clearly different from neutral seasons: median ${fmt.pct(n.medianRainPct)} vs ${fmt.pct(neu.medianRainPct)} against the 1991–2020 normal, and ${n.drierCount} of ${n.n} El Niño seasons were below normal. The difference could be chance (${pTxt}).`));
   const T = theme();
   const g = el("div", { class: "grid2" });
   const c1 = el("div", {}, el("h3", {}, "Season rainfall vs 1991–2020 normal"));
-  const c2 = el("div", {}, el("h3", {}, "Season temperature vs long-term trend"));
+  const c2 = el("div", {}, el("h3", {}, "Season mean daily maximum vs long-term trend"));
   g.append(c1, c2);
   b.append(legend([{ label: "El Niño season", color: T.nino, kind: "dot" }, { label: "Neutral", color: T.neutral, kind: "dot" }, { label: "La Niña season", color: T.nina, kind: "dot" }, { label: "Median (bar); outlined = selected season", color: T.ink, kind: "line" }]));
   b.append(g);
   chart(c1, (w) => compositeDots(w, comp.points.map((p) => ({ year: p.year, phase: p.phase, v: p.rainPct })), "%", "% vs normal", highlight));
   chart(c2, (w) => compositeDots(w, comp.points.map((p) => ({ year: p.year, phase: p.phase, v: p.tempAnom })), " °C", "°C", highlight));
   const tSig = comp.pTempNinoVsNeutral < 0.05;
-  b.append(note(`Temperature: El Niño median ${fmt.dc(n.medianTempAnom)} vs neutral ${fmt.dc(neu.medianTempAnom)} (${tSig ? "" : "not "}significant, p = ${comp.pTempNinoVsNeutral.toFixed(3)}). Temperatures are shown after removing the linear warming trend.`));
-  b.append(tableView(["Season", "Phase", "Rain (mm)", "Rain vs normal", "Temp vs trend (°C)"],
+  b.append(note(`Season mean of daily maximum temperature: El Niño median ${fmt.dc(n.medianTempAnom)} vs neutral ${fmt.dc(neu.medianTempAnom)} (${tSig ? "" : "not "}significant, rank test p = ${pFmt(comp.pTempNinoVsNeutral)}). Temperatures are shown after removing the linear warming trend.`));
+  b.append(tableView(["Season", "Phase", "Rain (mm)", "Rain vs normal", "Tmax vs trend (°C)"],
     [...comp.points].reverse().map((p) => [String(p.year), p.phase === "El Nino" ? "El Niño" : p.phase === "La Nina" ? "La Niña" : "Neutral", Math.round(p.rain), `${Math.round(p.rainPct)}%`, r1(p.tempAnom)])));
   b.append(note(`Seasons ${comp.firstYear}–${comp.lastYear}. A season counts as El Niño or La Niña when more than half its days fall in a NOAA CPC episode. Normal = mean of 1991–2020 seasons (${Math.round(comp.normalRain)} mm).`));
   b.append(src("ERA5 via Open-Meteo; ENSO episodes from NOAA CPC. Past seasons show what happened, not a forecast: each El Niño is different."));
