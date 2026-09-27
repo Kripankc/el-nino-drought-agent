@@ -184,9 +184,9 @@ export function waterBalance(d: Daily, season: Season, p: CropParams, until: Day
 }
 
 // ---------------------------------------------------------- season totals
-export interface SeasonTotal { year: number; rain: number; tmean: number }
+export interface SeasonTotal { year: number; rain: number; tmax: number }
 
-/** Total rainfall and mean of (Tmax+Tmin)/2 for every complete season in `d`. */
+/** Total rainfall and mean daily maximum temperature for every complete season in `d`. */
 export function seasonTotals(d: Daily, seasonFor: (y: number) => Season, y0: number, y1: number): SeasonTotal[] {
   const ix = indexOf(d);
   const out: SeasonTotal[] = [];
@@ -199,12 +199,11 @@ export function seasonTotals(d: Daily, seasonFor: (y: number) => Season, y0: num
       const i = ix.get(day);
       const pr = i === undefined ? null : d.precip[i];
       const tx = i === undefined ? null : d.tmax[i];
-      const tn = i === undefined ? null : d.tmin[i];
-      if (pr == null || tx == null || tn == null) { complete = false; break; }
+      if (pr == null || tx == null) { complete = false; break; }
       rain += pr;
-      temps.push((tx + tn) / 2);
+      temps.push(tx);
     }
-    if (complete) out.push({ year: y, rain, tmean: mean(temps) });
+    if (complete) out.push({ year: y, rain, tmax: mean(temps) });
   }
   return out;
 }

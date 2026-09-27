@@ -43,7 +43,7 @@ async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<
     const r = await fetch(url);
     if (r.status === 429) {
       // Free tier: 600 calls/min, 5,000/hour, 10,000/day (weighted by days x variables).
-      status?.(`Open-Meteo rate limit reached; retrying in 65 s (attempt ${attempt + 1} of 3)`);
+      status?.(`The free weather service allows a limited amount of data per minute. Waiting 65 s, then retrying (attempt ${attempt + 1} of 3). Places you have already opened load instantly.`);
       await new Promise((res) => setTimeout(res, 65_000));
       continue;
     }

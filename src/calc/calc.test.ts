@@ -2,10 +2,11 @@
 // here for testing only; nothing from this file is shown in the app.
 import { describe, expect, it } from "vitest";
 import { fromDay, toDay, dayOfYear } from "../lib/dates";
-import { detrend, permutationTest, percentileRank, quantile } from "./stats";
+import { detrend, permutationTest, percentileRank, quantile, rankPermutationTest, ranks } from "./stats";
 import { effectiveRain, kcOnDay, seasonForYear, seasonLength, seasonStatus, stagePlan } from "./season";
 import { Daily, cumulative, cumulativeRainBand, monthlyVsNormal, seasonTotals, waterBalance } from "./climate";
 import { EnsoData, composite, episodeMonths, seasonPhase } from "./enso";
+import { cropName } from "../lib/cropnames";
 
 function constDaily(from: string, to: string, v: Partial<Record<keyof Daily, number>>): Daily {
   const a = toDay(from);
@@ -42,6 +43,14 @@ describe("stats", () => {
   it("permutation test separates distinct groups and not identical ones", () => {
     expect(permutationTest([10, 11, 12, 13, 14], [0, 1, 2, 3, 4], 2000)).toBeLessThan(0.02);
     expect(permutationTest([1, 2, 3, 4], [1, 2, 3, 4], 2000)).toBeGreaterThan(0.5);
+  });
+  it("ranks ties with mid-ranks and the rank test resists outliers", () => {
+    expect(ranks([10, 20, 20, 5])).toEqual([2, 3.5, 3.5, 1]);
+    // one huge outlier in b should not rescue b: a is shifted up in every other value
+    const a = [5, 6, 7, 8, 9, 10];
+    const b = [0, 1, 2, 3, 4, 500];
+    expect(rankPermutationTest(a, b, 4000)).toBeLessThan(0.1);
+    expect(permutationTest(a, b, 4000)).toBeGreaterThan(0.3);
   });
 });
 
@@ -109,7 +118,7 @@ describe("climate", () => {
     expect(m[0].pct).toBeCloseTo(100, 6);
     const t = seasonTotals(clim, (y) => seasonForYear({ plantDoy: 1, maturityDoy: 10 }, y), 1991, 1992);
     expect(t[0].rain).toBe(10);
-    expect(t[0].tmean).toBe(25);
+    expect(t[0].tmax).toBe(30);
   });
 });
 
@@ -127,12 +136,21 @@ describe("enso composites", () => {
   });
   it("computes rainfall departures against the 1991-2020 normal", () => {
     const totals = Array.from({ length: 40 }, (_, k) => ({
-      year: 1981 + k, rain: 1981 + k === 1997 ? 50 : 100, tmean: 25,
+      year: 1981 + k, rain: 1981 + k === 1997 ? 50 : 100, tmax: 30,
     }));
     const c = composite(totals, (y) => seasonForYear({ plantDoy: 305, maturityDoy: 120 }, y), enso)!;
     const p97 = c.points.find((p) => p.year === 1997)!;
     expect(p97.phase).toBe("El Nino");
     expect(c.byPhase["El Nino"].n).toBe(1);
     expect(p97.rainPct).toBeLessThan(-45);
+  });
+});
+
+describe("crop names", () => {
+  it("expands CROPGRIDS codes", () => {
+    expect(cropName("pulsenes")).toBe("Other pulses");
+    expect(cropName("maizefor")).toBe("Maize (forage)");
+    expect(cropName("sweetpotato")).toBe("Sweet potato");
+    expect(cropName("maize")).toBe("Maize");
   });
 });

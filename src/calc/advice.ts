@@ -88,15 +88,17 @@ export function buildAdvice(x: AdviceInput): Advice[] {
   }
 
   // 5. Seasonal outlook: drier than SEAS5's own normal during the sensitive stage
-  if (x.seasonal && mid) {
+  //    (in season), or anywhere in the coming season (before sowing).
+  const win: [Day, Day] | null = x.inSeason ? mid : [x.season.plant, x.season.harvest];
+  if (x.seasonal && win) {
     const dryMonths = x.seasonal.filter((m) => {
       const start = toDay(m.month + "-01");
-      return start <= mid[1] && start + 30 >= mid[0] && m.precipPct != null && m.precipPct <= -20;
+      return start <= win[1] && start + 30 >= Math.max(win[0], x.today) && m.precipPct != null && m.precipPct <= -20;
     });
     if (dryMonths.length) {
       const names = dryMonths.map((m) => monthName(Number(m.month.slice(5, 7)))).join(", ");
       out.push({
-        title: "Seasonal forecast leans dry for the sensitive stage",
+        title: x.inSeason ? "Seasonal forecast leans dry for the sensitive stage" : "Seasonal forecast leans dry for the coming season",
         trigger: `ECMWF SEAS5 ensemble-mean rainfall for ${names} is at least 20% below the model's own normal.`,
         action: x.inSeason
           ? "Plan now for supplementary irrigation or water harvesting around flowering, and keep soil cover to hold moisture."
@@ -106,14 +108,23 @@ export function buildAdvice(x: AdviceInput): Advice[] {
     }
   }
 
-  // 6. El Nino currently active and historically dry here
-  if (x.composite && x.ensoNow?.type === "El Nino") {
+  // 6. El Nino developing or active: what past El Nino seasons did here
+  if (x.ensoNow?.type === "El Nino") {
+    const now = `El Niño-level ocean temperatures for ${x.ensoNow.seasons_so_far} consecutive season${x.ensoNow.seasons_so_far > 1 ? "s" : ""} (NOAA CPC; five make an official episode).`;
     const c = x.composite;
-    const n = c.byPhase["El Nino"];
-    if (c.pRainNinoVsNeutral < 0.05 && n.medianRainPct < 0) {
+    const n = c?.byPhase["El Nino"];
+    if (!c || !n) {
       out.push({
-        title: "El Niño seasons have been dry here",
-        trigger: `El Niño conditions are present (${x.ensoNow.seasons_so_far} consecutive seasons at or above +0.5 °C). In ${n.drierCount} of ${n.n} past El Niño seasons, rainfall for this crop season was below the 1991–2020 normal (median ${Math.round(n.medianRainPct)}%).`,
+        title: "El Niño is developing",
+        trigger: now,
+        action: "Load the El Niño history below to see how past El Niño seasons went for this crop at this place.",
+        source: "NOAA CPC Relative Oceanic Niño Index",
+      });
+    } else if (n.n >= 5 && n.medianRainPct < 0 && (c.pRainNinoVsNeutral < 0.05 || n.drierCount / n.n >= 0.6)) {
+      const clear = c.pRainNinoVsNeutral < 0.05;
+      out.push({
+        title: clear ? "El Niño seasons have been dry here" : "El Niño seasons have often been dry here",
+        trigger: `${now} In ${n.drierCount} of ${n.n} past El Niño seasons, rainfall for this crop season was below the 1991–2020 normal (median ${Math.round(n.medianRainPct)}%)${clear ? "." : "; the difference from neutral seasons is not statistically clear."}`,
         action: "Treat a below-normal season as more likely than usual when planning seed, water and inputs.",
         source: "ERA5 rainfall composites by NOAA CPC ENSO episode (this page)",
       });

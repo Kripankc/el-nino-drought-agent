@@ -92,7 +92,7 @@ async function choose(lat: number, lon: number, name: string | null) {
   results.replaceChildren();
   if (!name) {
     reversePlace(lat, lon).then((n) => {
-      if (n && state.lat === lat && state.lon === lon) {
+      if (n && state.lat === lat && state.lon === lon && state.name == null) {
         state.name = n; writeUrl();
         const h = document.getElementById("place-name");
         if (h) h.textContent = n;
@@ -222,7 +222,7 @@ async function load() {
 
     setStatus(S.status.clim);
     const clim = await era5Daily(lat, lon, toDay("1991-01-01"), toDay("2020-12-31"),
-      ["precip", "tmax", "tmin", "et0", "rh", "sm"], (m) => alive() && setStatus(m));
+      ["precip", "tmax", "et0", "rh", "sm"], (m) => alive() && setStatus(m));
     if (!alive()) return;
 
     const cal: Calendar | null = cropKey
