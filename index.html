@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ENSOwatch: crop climate and El Niño explorer</title>
+  <meta name="description" content="Weather, climate, crop seasons, crop water needs and El Niño history for any farm location. Open data: ERA5, ECMWF, NOAA CPC, CROPGRIDS, GGCMI, FAO-56." />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>ENSOwatch</h1>
+      <p>Weather, crop seasons, crop water needs and El Niño history for any farm location.</p>
+    </header>
+
+    <form class="controls" id="controls" autocomplete="off">
+      <label class="grow">Place
+        <input id="q" type="search" placeholder="Village, district or 'lat, lon'" />
+      </label>
+      <button type="submit">Search</button>
+      <label>Date
+        <input id="date" type="date" min="1950-01-01" />
+      </label>
+      <label>Crop
+        <select id="crop" disabled><option>Pick a place first</option></select>
+      </label>
+      <label>Compare with season
+        <select id="cmp" disabled><option value="">None</option></select>
+      </label>
+      <ul id="results"></ul>
+    </form>
+
+    <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
+    <p class="status" id="status" aria-live="polite">Search for a place or click the map.</p>
+
+    <main id="report"></main>
+
+    <footer class="site">
+      <p><a href="methods.html">Methods, data sources and limitations</a></p>
+      <p>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (ERA5 reanalysis, ECMWF IFS ensemble, ECMWF SEAS5; Copernicus Climate Change Service / ECMWF). ENSO index: NOAA Climate Prediction Center. Crop areas: CROPGRIDS (Tang et al. 2024). Crop calendars: GGCMI Phase 3 (Jägermeyr et al. 2021). Crop water: FAO-56. Map and place search: © OpenStreetMap contributors.</p>
+      <p>General information only. Always confirm decisions with your local agricultural extension service.</p>
+      <p>Kripan K C · Code under MIT licence · <a href="https://github.com/Kripankc/el-nino-drought-agent">Source code</a></p>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
