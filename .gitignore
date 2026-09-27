@@ -1,23 +1,7 @@
-# Database
-ensa.db
-*.db
-*.sqlite3
-
-# Environment Variables
-.env
-.cdsapirc
-
-# Python caching & bytecode
+node_modules/
+dist/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 .pytest_cache/
-.tox/
-.venv/
-venv/
-ENV/
-
-# OS files
 .DS_Store
 Thumbs.db

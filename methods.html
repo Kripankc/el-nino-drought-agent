@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ENSOwatch methods</title>
+  <meta name="description" content="Data sources, calculations and limitations behind ENSOwatch." />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>Methods, data and limitations</h1>
+      <p><a href="./">Back to the map</a></p>
+    </header>
+
+    <section class="block">
+      <h2>Data sources</h2>
+      <table class="crops">
+        <thead><tr><th>What</th><th>Source</th><th>Resolution</th></tr></thead>
+        <tbody>
+          <tr><td>Past daily weather: rainfall, max/min temperature, relative humidity, FAO-56 reference evapotranspiration ET₀, soil moisture 0–100 cm</td><td>ERA5 reanalysis (Hersbach et al. 2020, Copernicus Climate Change Service), requested with <code>models=era5</code> from the <a href="https://open-meteo.com/en/docs/historical-weather-api">Open-Meteo Historical Weather API</a></td><td>~0.25° (~28 km), daily, 1950–present, ~5 days delay</td></tr>
+          <tr><td>15-day forecast</td><td>ECMWF IFS ensemble, 0.25° (control + 50 members), <a href="https://open-meteo.com/en/docs/ensemble-api">Open-Meteo Ensemble API</a></td><td>0.25°, daily</td></tr>
+          <tr><td>7-month outlook</td><td>ECMWF SEAS5 monthly ensemble mean and anomaly relative to SEAS5's hindcast climatology, <a href="https://open-meteo.com/en/docs/seasonal-forecast-api">Open-Meteo Seasonal API</a></td><td>~36 km, monthly</td></tr>
+          <tr><td>ENSO index and episodes</td><td>NOAA CPC Relative Oceanic Niño Index (RONI), CPC's operational index since February 2026. The Oceanic Niño Index (ONI) is used only if RONI cannot be downloaded; the page names the index shown.</td><td>Monthly (3-month running mean), 1950–present</td></tr>
+          <tr><td>Niño-3.4 model outlook</td><td>ECMWF SEAS5 sea-surface-temperature anomaly averaged over 55 points in 5°S–5°N, 170°W–120°W (indicator only; official outlooks are linked)</td><td>Monthly</td></tr>
+          <tr><td>Crops grown at a location</td><td>CROPGRIDS v1.08, harvested area of 173 crops circa 2020 (Tang et al. 2024, <i>Scientific Data</i> 11:413)</td><td>0.05°, aggregated to 0.25°</td></tr>
+          <tr><td>Sowing and maturity dates</td><td>GGCMI Phase 3 crop calendar, rainfed and irrigated (Jägermeyr et al. 2021, <i>Nature Food</i> 2:873–885)</td><td>0.5°</td></tr>
+          <tr><td>Crop coefficients and stage lengths</td><td>FAO Irrigation and Drainage Paper 56 (Allen et al. 1998), Tables 11 and 12</td><td>Per crop</td></tr>
+          <tr><td>Place search and map</td><td>OpenStreetMap Nominatim and tiles</td><td>–</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="block">
+      <h2>Calculations</h2>
+      <h3>Normal range</h3>
+      <p>The normal range is 1991–2020, the current WMO standard reference period. For daily variables, the 10th, 50th and 90th percentiles use every day within ±7 days of the calendar date across the 30 years. For rainfall since sowing, each 1991–2020 season is accumulated from its own sowing date, and percentiles are taken across seasons for each day after sowing.</p>
+      <h3>Crop season and stages</h3>
+      <p>Sowing and maturity dates come from GGCMI for the 0.5° cell. The four FAO-56 stages (initial, development, mid-season, late season) take their proportions from one FAO-56 Table 11 row per crop, scaled to the local season length. The row used is shown on the page and listed in <code>public/data/crop_params.json</code>.</p>
+      <h3>Crop water need</h3>
+      <p>Crop evapotranspiration ETc = Kc × ET₀ (FAO-56 single crop coefficient method). Kc is constant in the initial stage, rises linearly to Kc<sub>mid</sub> over development, stays at Kc<sub>mid</sub> through mid-season, and changes linearly to Kc<sub>end</sub> over the late season. Where FAO-56 gives a range, the midpoint is used. ET₀ is the FAO-56 Penman–Monteith reference evapotranspiration computed by Open-Meteo from ERA5. Effective rainfall uses the USDA Soil Conservation Service formula as implemented in FAO CROPWAT: P<sub>eff</sub> = P(125 − 0.2P)/125 for P ≤ 250 mm per month, otherwise 125 + 0.1P, applied per calendar month and pro-rated for partial months. The shortfall is the sum over months of max(0, ETc − P<sub>eff</sub>). Rapeseed and rye have no FAO-56 stage row, so no water need is computed for them.</p>
+      <h3>Heat thresholds</h3>
+      <p>Maize 29 °C, soybean 30 °C and cotton 32 °C (Schlenker &amp; Roberts 2009, PNAS 106:15594); rice 35 °C at flowering (Yoshida 1981); wheat 34 °C (Lobell et al. 2012, <i>Nature Climate Change</i> 2:186). The page counts days with daily maximum above the threshold. This is a simpler measure than the hourly exposure used by Schlenker &amp; Roberts. Other crops have no threshold shown.</p>
+      <h3>ENSO episodes and local composites</h3>
+      <p>An El Niño (La Niña) episode needs at least five consecutive overlapping 3-month seasons at or above +0.5 °C (at or below −0.5 °C), following NOAA CPC. A crop season counts as El Niño or La Niña when more than half its days fall in an episode month, otherwise as neutral. Season rainfall is expressed as a percentage departure from the mean of the 1991–2020 seasons. Season temperature is the mean of (Tmax + Tmin)/2, shown as a departure from a linear trend fitted over 1950–present, so warming is not mistaken for an ENSO effect. The difference between El Niño and neutral seasons is tested with a two-sided permutation test on the difference in means (10,000 permutations, fixed seed). The page only says "El Niño seasons here were drier/wetter" when p &lt; 0.05. Where there is no crop calendar, the six months starting in the selected month are used instead.</p>
+      <h3>Guidance</h3>
+      <p>Guidance is rule-based. Each item appears only when its data trigger is met. The page shows the trigger and the source:</p>
+      <ul>
+        <li>rain since sowing below the 20th percentile with a shortfall above 25 mm (FAO-33);</li>
+        <li>root-zone soil moisture below the 10th percentile for the time of year;</li>
+        <li>ensemble-median Tmax above the crop threshold during mid-season in the next 15 days;</li>
+        <li>ensemble-median rain of 75 mm or more over three days;</li>
+        <li>SEAS5 ensemble-mean rainfall at least 20% below the model normal in a month overlapping mid-season;</li>
+        <li>an El Niño run in progress where past El Niño seasons were significantly drier.</li>
+      </ul>
+      <p>No guidance is given for past dates.</p>
+    </section>
+
+    <section class="block">
+      <h2>Limitations</h2>
+      <ul>
+        <li>ERA5 is a ~31 km model reanalysis. Rainfall is least reliable in steep terrain and convective climates, and it cannot represent a single field.</li>
+        <li>Harvested area counts multiple cropping. Crop maps are circa 2020 and calendars are static, so crop mixes and sowing dates in past decades may have been different.</li>
+        <li>FAO-56 ETc describes a healthy, well-watered crop. Rice paddy water use (land preparation, percolation, standing water) is higher than ETc.</li>
+        <li>Seasonal forecasts are not bias-corrected and have limited skill at one location.</li>
+        <li>ENSO composites describe past seasons. The number of El Niño seasons since 1950 is small, and individual events differ.</li>
+        <li>Open-Meteo's free tier is for non-commercial use and is rate-limited: 600 weighted calls per minute, 5,000 per hour and 10,000 per day, counted per visitor IP. Long daily records are heavy, so they are cached in the browser after the first load.</li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h2>References</h2>
+      <ul>
+        <li>Allen, R.G., Pereira, L.S., Raes, D., Smith, M. (1998) Crop evapotranspiration. FAO Irrigation and Drainage Paper 56.</li>
+        <li>Doorenbos, J., Kassam, A.H. (1979) Yield response to water. FAO Irrigation and Drainage Paper 33.</li>
+        <li>Hersbach, H. et al. (2020) The ERA5 global reanalysis. Q. J. R. Meteorol. Soc. 146, 1999–2049.</li>
+        <li>Jägermeyr, J. et al. (2021) Climate impacts on global agriculture emerge earlier in new generation of climate and crop models. Nature Food 2, 873–885. Data: doi:10.5281/zenodo.5062513.</li>
+        <li>Lobell, D.B., Sibley, A., Ortiz-Monasterio, J.I. (2012) Extreme heat effects on wheat senescence in India. Nature Climate Change 2, 186–189.</li>
+        <li>Schlenker, W., Roberts, M.J. (2009) Nonlinear temperature effects indicate severe damages to U.S. crop yields under climate change. PNAS 106, 15594–15598.</li>
+        <li>Tang, F.H.M. et al. (2024) CROPGRIDS: a global geo-referenced dataset of 173 crops. Scientific Data 11, 413. Data: doi:10.6084/m9.figshare.22491997.</li>
+        <li>Yoshida, S. (1981) Fundamentals of Rice Crop Science. IRRI.</li>
+        <li>Zippenfenig, P. (2023) Open-Meteo.com Weather API. doi:10.5281/zenodo.7970649.</li>
+        <li>NOAA Climate Prediction Center: Relative Oceanic Niño Index, <a href="https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/enso/roni/">cpc.ncep.noaa.gov/products/analysis_monitoring/enso/roni/</a>.</li>
+      </ul>
+    </section>
+    <footer class="site"><p><a href="./">Back to the map</a></p></footer>
+  </div>
+</body>
+</html>

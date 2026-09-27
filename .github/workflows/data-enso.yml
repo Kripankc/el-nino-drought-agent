@@ -1,0 +1,25 @@
+name: Update ENSO data
+on:
+  schedule:
+    - cron: "17 6 * * *"   # daily; CPC updates RONI monthly, SEAS5 on the 5th
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  enso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r pipeline/requirements.txt
+      - run: python pipeline/enso.py --out public/data/enso.json
+      - name: Commit if the index or outlook changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/enso.json
+          # enso.py leaves the file untouched when nothing but the timestamp would change
+          if git diff --cached --quiet -- public/data/enso.json; then echo "no change"; exit 0; fi
+          git commit -m "data: update ENSO index and SEAS5 Nino-3.4 outlook"
+          git push
