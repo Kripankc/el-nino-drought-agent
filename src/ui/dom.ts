@@ -1,7 +1,7 @@
-// Tiny DOM helpers. Untrusted text (place names, API strings) always goes in via textContent.
+// DOM helpers. Untrusted text (place names, API strings) always goes in via textContent.
 import { icon } from "./icons";
 
-type Child = Node | string | null | undefined | false;
+export type Child = Node | string | null | undefined | false;
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K, attrs: Record<string, string> = {}, ...children: Child[]
@@ -17,39 +17,56 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 let uid = 0;
 
-/**
- * A section card: icon + title, and an (i) button that reveals `info` panel.
- * Returns the section; append content to it. Add explanatory text with `info()`.
- */
-export interface Block { sec: HTMLElement; body: HTMLElement; info: (...nodes: Child[]) => void }
+/** A section: title and an "About" toggle that reveals explanatory notes. */
+export interface Sec { el: HTMLElement; body: HTMLElement; about: (...nodes: Child[]) => void }
 
-export function block(parent: HTMLElement, title: string, opts: { id?: string; icon?: string } = {}): Block {
-  const id = opts.id ?? `s${++uid}`;
-  const panel = el("div", { class: "info-panel", id: `${id}-info`, hidden: "" });
-  const btn = el("button", { class: "info-btn", type: "button", "aria-expanded": "false", "aria-controls": `${id}-info`, "aria-label": `About: ${title}`, title: "More information" }, icon("info", 20));
+export function section(parent: HTMLElement, title: string): Sec {
+  const id = `sec${++uid}`;
+  const panel = el("div", { class: "about-panel", id: `${id}-about`, hidden: "" });
+  const btn = el("button", { class: "about", type: "button", "aria-expanded": "false", "aria-controls": `${id}-about`, hidden: "" },
+    icon("info", 15), "About");
   btn.addEventListener("click", () => {
     const open = btn.getAttribute("aria-expanded") === "true";
     btn.setAttribute("aria-expanded", String(!open));
     panel.hidden = open;
-    if (!open) repaintAll();
   });
-  const head = el("div", { class: "block-head" },
-    opts.icon ? el("span", { class: "block-ico" }, icon(opts.icon, 22)) : null,
-    el("h2", {}, title), btn);
-  btn.hidden = true; // shown once info is added
-  const body = el("div", { class: "block-body" });
-  const sec = el("section", { class: "block", id }, head, panel, body);
-  parent.append(sec);
+  const body = el("div", {});
+  const s = el("section", { class: "sec", id }, el("div", { class: "sec-h" }, el("h2", {}, title), btn), panel, body);
+  parent.append(s);
   return {
-    sec, body,
-    info: (...nodes: Child[]) => {
+    el: s, body,
+    about: (...nodes: Child[]) => {
       btn.hidden = false;
-      for (const n of nodes) if (n != null && n !== false) panel.append(typeof n === "string" ? el("p", {}, n) : n);
+      for (const n of nodes) if (n != null && n !== false && n !== "") panel.append(typeof n === "string" ? el("p", {}, n) : n);
     },
   };
 }
 
-/** Collapsible "show more" area (details/summary), repaints charts when opened. */
+/** Tabs: returns one panel element per label. */
+export function tabs(parent: HTMLElement, labels: string[], initial = 0): HTMLElement[] {
+  const bar = el("div", { class: "tabs", role: "tablist" });
+  const panels: HTMLElement[] = [];
+  const buttons: HTMLButtonElement[] = [];
+  labels.forEach((l, i) => {
+    const b = el("button", { type: "button", role: "tab", "aria-selected": String(i === initial) }, l);
+    const p = el("div", { class: "tabpanel", role: "tabpanel" });
+    if (i !== initial) p.hidden = true;
+    b.addEventListener("click", () => {
+      buttons.forEach((x, k) => x.setAttribute("aria-selected", String(k === i)));
+      panels.forEach((x, k) => (x.hidden = k !== i));
+      repaintAll();
+      const top = bar.getBoundingClientRect().top;
+      if (top < 0) bar.scrollIntoView({ block: "start" });
+    });
+    buttons.push(b);
+    panels.push(p);
+    bar.append(b);
+  });
+  parent.append(bar, ...panels);
+  return panels;
+}
+
+/** Collapsible area (details/summary); charts inside are repainted when opened. */
 export function more(label: string, ...children: Child[]): HTMLDetailsElement {
   const d = el("details", { class: "more" }, el("summary", {}, label), ...children);
   d.addEventListener("toggle", () => { if (d.open) repaintAll(); });
@@ -60,12 +77,11 @@ export function note(text: string, cls = "note"): HTMLElement {
   return el("p", { class: cls }, text);
 }
 
-export function srcLine(text: string): HTMLElement {
-  return el("p", { class: "src" }, text);
+export function caption(text: string): HTMLElement {
+  return el("p", { class: "caption" }, text);
 }
 
-// Charts are re-drawn at the container width on resize, on colour-scheme change
-// and when a hidden container is opened.
+// Charts re-draw at container width on resize, colour-scheme change and when shown.
 type Redraw = { host: HTMLElement; draw: (w: number) => Node };
 let charts: Redraw[] = [];
 
@@ -80,8 +96,8 @@ export function chart(parent: HTMLElement, draw: (w: number) => Node, cls = "cha
 
 function paint(r: Redraw) {
   const cw = r.host.clientWidth;
-  if (!cw && r.host.childElementCount) return; // hidden: keep, redraw when shown
-  const w = Math.max(260, Math.floor(cw || 600));
+  if (!cw && r.host.childElementCount) return; // hidden: redraw when shown
+  const w = Math.max(240, Math.floor(cw || 430));
   r.host.replaceChildren(r.draw(w));
 }
 
@@ -94,7 +110,7 @@ export function repaintAll() {
 }
 window.addEventListener("resize", () => {
   clearTimeout(timer);
-  timer = window.setTimeout(repaintAll, 200);
+  timer = window.setTimeout(repaintAll, 150);
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaintAll);
 

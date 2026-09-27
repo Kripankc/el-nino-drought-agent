@@ -3,47 +3,42 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ENSOwatch: crop climate and El Niño explorer</title>
-  <meta name="description" content="Weather, climate, crop seasons, crop water needs and El Niño history for any farm location. Open data: ERA5, ECMWF, NOAA CPC, CROPGRIDS, GGCMI, FAO-56." />
+  <title>ENSOwatch · Climate, crops and El Niño for any farm</title>
+  <meta name="description" content="Season rainfall against crop water need, heat, soil moisture, 15-day and 7-month forecasts and El Niño history for any farm location. Open data from ERA5, ECMWF, NOAA CPC, CROPGRIDS, GGCMI and FAO-56." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <div class="wrap">
-    <header class="site">
-      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20v-7"/><path d="M12 13c0-3.5 2.6-5.5 6-5.5 0 3.5-2.6 5.5-6 5.5z"/><path d="M12 15c0-2.8-2.2-4.5-5-4.5 0 2.8 2.2 4.5 5 4.5z"/><path d="M3 20c1.5 0 1.5-1.2 3-1.2s1.5 1.2 3 1.2 1.5-1.2 3-1.2 1.5 1.2 3 1.2 1.5-1.2 3-1.2 1.5 1.2 3 1.2"/></svg></div>
-      <div>
-        <h1>ENSOwatch</h1>
-        <p>Weather, crops, water and El Niño for any farm</p>
-      </div>
-    </header>
-
-    <form class="controls" id="controls" autocomplete="off">
-      <div class="searchbox">
-        <input id="q" type="search" placeholder="Search a village or district, or tap the map" aria-label="Place" />
-        <button type="submit">Search</button>
-      </div>
-      <label>Date
-        <input id="date" type="date" min="1950-01-01" />
-      </label>
-      <label class="crop">Crop
-        <select id="crop" disabled><option>Pick a place first</option></select>
-      </label>
-      <label>Compare with
-        <select id="cmp" disabled><option value="">None</option></select>
-      </label>
-      <ul id="results"></ul>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="ENSOwatch home">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect width="24" height="24" rx="6" fill="currentColor"/><path d="M4 15.5c1.4 0 1.4-1.3 2.8-1.3s1.4 1.3 2.8 1.3 1.4-1.3 2.8-1.3 1.4 1.3 2.8 1.3 1.4-1.3 2.8-1.3 1.4 1.3 1.8 1.3M12 13V7.5m0 1.5c.3-1.8 1.8-3 3.8-3-.2 1.9-1.7 3-3.8 3z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>ENSOwatch</span>
+    </a>
+    <form class="search" id="search" autocomplete="off" role="search">
+      <svg class="search-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search a place, or click the map" aria-label="Search a place" />
+      <ul id="results" role="listbox"></ul>
     </form>
+    <label class="datefield" title="Look at a past date">
+      <span class="sr">Date</span>
+      <input id="date" type="date" min="1950-01-01" />
+    </label>
+    <a class="toplink" href="methods.html">Methods</a>
+  </header>
 
-    <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
-    <p class="status" id="status" aria-live="polite">Search for a place or tap the map.</p>
-
-    <main id="report"></main>
-
-    <footer class="site">
-      <p><a href="methods.html">Methods, data sources and limitations</a></p>
-      <p>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (ERA5 reanalysis, ECMWF IFS ensemble, ECMWF SEAS5; Copernicus Climate Change Service / ECMWF). ENSO index: NOAA Climate Prediction Center. Crop areas: CROPGRIDS (Tang et al. 2024). Crop calendars: GGCMI Phase 3 (Jägermeyr et al. 2021). Crop water: FAO-56. Map and place search: © OpenStreetMap contributors.</p>
-      <p>General information only. Always confirm decisions with your local agricultural extension service.</p>
-      <p>Kripan K C · Code under MIT licence · <a href="https://github.com/Kripankc/el-nino-drought-agent">Source code</a></p>
-    </footer>
+  <div class="app">
+    <aside class="panel" id="panel">
+      <div class="status" id="status" aria-live="polite" hidden></div>
+      <main id="report"></main>
+    </aside>
+    <div class="mapwrap">
+      <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
+      <div class="layers" role="group" aria-label="Base map">
+        <button type="button" data-layer="map" aria-pressed="true">Map</button>
+        <button type="button" data-layer="sat" aria-pressed="false">Satellite</button>
+      </div>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
