@@ -375,3 +375,13 @@ body.doc { height: auto; }
 .recent-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .recent-v { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
 .tag-pre { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); background: var(--raised); padding: 2px 6px; border-radius: 4px; }
+
+/* Map data layers */
+.overlay-ctl { position: absolute; top: 12px; right: 12px; z-index: 500; background: var(--panel); border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); padding: 4px; max-width: 260px; }
+.overlay-ctl select { border: 0; background-color: transparent; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink); padding: 4px 24px 4px 8px; height: 30px; }
+#overlay-info { padding: 4px 8px 6px; }
+.ov-legend { display: block; width: 100%; max-width: 240px; height: auto; background: #fff; border-radius: 4px; }
+.ov-src { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.cal-hit { cursor: pointer; }
+.cal-hit:hover { fill: color-mix(in srgb, var(--ink) 5%, transparent); }
+.recs-h select.lang { height: 30px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; padding: 0 22px 0 8px; }

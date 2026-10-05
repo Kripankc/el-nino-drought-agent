@@ -36,6 +36,12 @@
     <div class="right" id="right">
       <div class="mapwrap">
         <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
+        <div class="overlay-ctl">
+          <label><span class="sr">Map layer</span>
+            <select id="overlay"><option value="">Satellite only</option></select>
+          </label>
+          <div id="overlay-info" hidden></div>
+        </div>
       </div>
       <div class="gutter gutter-h" id="gutter-h" role="separator" aria-orientation="horizontal" aria-label="Resize map" tabindex="0"></div>
       <section class="details" id="details" aria-label="Details"></section>

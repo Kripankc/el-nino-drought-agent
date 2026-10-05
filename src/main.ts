@@ -7,6 +7,7 @@ import { cropsAt, loadCropParams, loadEnso, LocalCrops, CropParamFile } from "./
 import { era5Daily, era5Windows, lastEra5Day, mergeDaily } from "./api/openmeteo";
 import { planClimatology } from "./calc/windows";
 import { Calendar, seasonForYear } from "./calc/season";
+import { CropChoice, cropChoices } from "./calc/crops";
 import { EnsoData, episodeMonths, seasonPhase } from "./calc/enso";
 import { S } from "./strings";
 import { el } from "./ui/dom";
@@ -90,7 +91,50 @@ imagery.on("tileerror", () => {
 });
 map.setMaxZoom(18);
 imagery.addTo(map);
-labels.addTo(map);
+labels.setZIndex(3).addTo(map);
+
+// Satellite data layers from NASA GIBS (free, no key). For a past date the layer
+// shows that date; otherwise the latest available image.
+const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
+const OVERLAYS: Record<string, { label: string; layer: string; tms: string; maxNative: number; start: string; legend: string; source: string }> = {
+  ndvi: { label: "Vegetation (NDVI)", layer: "MODIS_Terra_NDVI_8Day", tms: "GoogleMapsCompatible_Level9", maxNative: 9, start: "2000-03-01",
+    legend: "https://gibs.earthdata.nasa.gov/legends/MODIS_NDVI_H.svg", source: "MODIS Terra NDVI, 8-day composite, NASA GIBS" },
+  rain: { label: "Rain (IMERG)", layer: "IMERG_Precipitation_Rate", tms: "GoogleMapsCompatible_Level6", maxNative: 6, start: "2000-06-01",
+    legend: "https://gibs.earthdata.nasa.gov/legends/GPM_Precipitation_Rate_H.svg", source: "GPM IMERG precipitation rate, daily, NASA GIBS" },
+  soil: { label: "Soil moisture (SMAP)", layer: "SMAP_L4_Analyzed_Root_Zone_Soil_Moisture", tms: "GoogleMapsCompatible_Level6", maxNative: 6, start: "2015-04-01",
+    legend: "https://gibs.earthdata.nasa.gov/legends/SMAP_Analyzed_Soil_Moisture_H.svg", source: "SMAP L4 root-zone soil moisture, daily, NASA GIBS" },
+};
+const ovSel = $<HTMLSelectElement>("overlay");
+const ovInfo = $<HTMLDivElement>("overlay-info");
+let overlay: L.TileLayer | null = null;
+function setOverlayDate() {
+  const past = state.date < todayDay() - 7;
+  for (const o of ovSel.options) {
+    const def = OVERLAYS[o.value];
+    o.disabled = !!def && past && fromDay(state.date) < def.start;
+  }
+  if (ovSel.selectedOptions[0]?.disabled) ovSel.value = "";
+  showOverlay();
+}
+function showOverlay() {
+  overlay?.remove();
+  overlay = null;
+  const def = OVERLAYS[ovSel.value];
+  ovInfo.hidden = !def;
+  if (!def) return;
+  const past = state.date < todayDay() - 7;
+  const time = past ? fromDay(state.date) : "default";
+  overlay = L.tileLayer(`${GIBS}/${def.layer}/default/${time}/${def.tms}/{z}/{y}/{x}.png`, {
+    maxNativeZoom: def.maxNative, maxZoom: 18, opacity: 0.8, zIndex: 2,
+    attribution: 'Data layers: <a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a>',
+  }).addTo(map);
+  ovInfo.replaceChildren(
+    el("img", { src: def.legend, alt: `${def.label} colour scale`, class: "ov-legend" }),
+    el("div", { class: "ov-src" }, `${def.source} · ${past ? fromDay(state.date) : "latest image"}`));
+}
+for (const [k, v] of Object.entries(OVERLAYS)) ovSel.append(el("option", { value: k }, v.label));
+ovSel.addEventListener("change", showOverlay);
+setOverlayDate();
 
 let marker: L.CircleMarker | null = null;
 function placeMarker(lat: number, lon: number, zoom?: number) {
@@ -106,7 +150,7 @@ map.on("click", (e: L.LeafletMouseEvent) => {
 });
 
 async function choose(lat: number, lon: number, name: string | null) {
-  state.lat = lat; state.lon = lon; state.name = name; state.cmp = null;
+  state.lat = lat; state.lon = lon; state.name = name; state.cmp = null; state.crop = null;
   placeMarker(lat, lon);
   results.replaceChildren();
   if (window.innerWidth <= 900) panel.scrollIntoView({ behavior: "smooth" });
@@ -152,6 +196,9 @@ dateIn.max = fromDay(todayDay());
 dateIn.addEventListener("change", () => {
   if (!dateIn.value) return;
   state.date = Math.min(toDay(dateIn.value), todayDay());
+  state.crop = null;   // show the crop growing at the new date
+  state.cmp = null;
+  setOverlayDate();
   if (state.lat != null) load();
 });
 cropSel.addEventListener("change", () => { state.crop = cropSel.value; state.cmp = null; load(); });
@@ -159,23 +206,23 @@ cmpSel.addEventListener("change", () => { state.cmp = cmpSel.value ? Number(cmpS
 
 // ------------------------------------------------------------------ menus
 function fillCropMenu(local: LocalCrops, params: CropParamFile): string | null {
-  const keys = Object.keys(local.calendars);
-  const areaOf = (code: string) => local.crops.find((c) => c.ggcmi.includes(code))?.ha ?? 0;
-  keys.sort((a, b) => areaOf(b.slice(0, 3)) - areaOf(a.slice(0, 3)) || (a.endsWith("_rf") ? -1 : 1));
+  const { options, pick } = cropChoices(local.crops, local.calendars, Math.min(state.date, todayDay()));
   cropSel.replaceChildren();
-  if (!keys.length) {
-    cropSel.append(el("option", { value: "" }, "No crop calendar here"));
+  if (!options.length) {
+    cropSel.append(el("option", { value: "" }, local.totalHa > 0 ? "No crop calendar here" : "No cropland mapped here"));
     cropSel.disabled = true;
     return null;
   }
-  for (const k of keys) {
-    const code = k.slice(0, 3);
-    cropSel.append(el("option", { value: k }, `${params.ggcmi_labels[code] ?? code}, ${k.endsWith("_ir") ? "irrigated" : "rainfed"}`));
-  }
+  const now = options.filter((o) => o.inSeason);
+  const later = options.filter((o) => !o.inSeason);
+  const opt = (o: CropChoice) => el("option", { value: o.key },
+    `${params.ggcmi_labels[o.code] ?? o.code}, ${o.key.endsWith("_ir") ? "irrigated" : "rainfed"} · ${Math.round(o.share * 100)}%`);
+  if (now.length) cropSel.append(el("optgroup", { label: "Growing now" }, ...now.map(opt)));
+  if (later.length) cropSel.append(el("optgroup", { label: now.length ? "Other crops grown here" : "Crops grown here" }, ...later.map(opt)));
   cropSel.disabled = false;
-  const pick = state.crop && keys.includes(state.crop) ? state.crop : keys[0];
-  cropSel.value = pick;
-  return pick;
+  const chosen = state.crop && options.some((o) => o.key === state.crop) ? state.crop : pick!;
+  cropSel.value = chosen;
+  return chosen;
 }
 
 function fillCmpMenu(cal: Calendar, enso: EnsoData | null) {
@@ -285,6 +332,7 @@ async function load() {
     await renderReport({
       root: report, state, params, enso, local: localCrops, cropsLoaded: local != null,
       cropKey, cal, clim: clim.data, grid: clim.grid, fields, details, alive,
+      pickCrop: (key) => { state.crop = key; state.cmp = null; load(); },
       setStatus: (m, err) => { if (alive()) setStatus(m, err); },
     });
   } catch (err) {

@@ -107,11 +107,11 @@ export function seasonLine(o: SeasonLineOpts, width: number): SVGSVGElement {
 }
 
 // ------------------------------------------------------------------ crop calendar
-export interface CalRow { label: string; share: number | null; windows: { plant: number; mature: number; irrigated: boolean }[]; selected?: boolean }
+export interface CalRow { label: string; share: number | null; windows: { plant: number; mature: number; irrigated: boolean }[]; selected?: boolean; key?: string }
 
 const MONTH_START = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366];
 
-export function cropCalendar(rows: CalRow[], todayDoy: number | null, width: number): SVGSVGElement {
+export function cropCalendar(rows: CalRow[], todayDoy: number | null, width: number, onPick?: (key: string) => void): SVGSVGElement {
   const t = theme();
   const labelW = 104;
   const shareW = 36;
@@ -142,6 +142,15 @@ export function cropCalendar(rows: CalRow[], todayDoy: number | null, width: num
   if (todayDoy != null) {
     add(s, "line", { x1: x(todayDoy), x2: x(todayDoy), y1: top - 6, y2: h - 2, stroke: t.ink, "stroke-width": 1.25 });
     add(s, "circle", { cx: x(todayDoy), cy: top - 6, r: 2.5, fill: t.ink });
+  }
+  if (onPick) {
+    rows.forEach((r, i) => {
+      if (!r.key || r.selected) return;
+      const hit = add(s, "rect", { x: 0, y: top + i * rowH, width, height: rowH, fill: "transparent", class: "cal-hit" });
+      hit.append(document.createElementNS("http://www.w3.org/2000/svg", "title"));
+      hit.firstElementChild!.textContent = `Show ${r.label}`;
+      hit.addEventListener("click", () => onPick(r.key!));
+    });
   }
   return s;
 }
