@@ -25,3 +25,14 @@ export async function reversePlace(lat: number, lon: number): Promise<string | n
     return null;
   }
 }
+
+const ccCache = new Map<string, Promise<string | null>>();
+/** ISO country code (lower case) at a point, or null (sea, failure). */
+export function countryCode(lat: number, lon: number): Promise<string | null> {
+  const k = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  if (!ccCache.has(k)) {
+    const p = new URLSearchParams({ lat: String(lat), lon: String(lon), format: "jsonv2", zoom: "3", "accept-language": "en" });
+    ccCache.set(k, fetch(`${BASE}/reverse?${p}`).then((r) => (r.ok ? r.json() : null)).then((j) => j?.address?.country_code ?? null).catch(() => null));
+  }
+  return ccCache.get(k)!;
+}
