@@ -27,17 +27,22 @@
     <a class="toplink" href="methods.html">Methods</a>
   </header>
 
-  <div class="app">
+  <div class="app" id="app">
     <aside class="panel" id="panel">
       <div class="status" id="status" aria-live="polite" hidden></div>
       <main id="report"></main>
     </aside>
-    <div class="mapwrap">
-      <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
-      <div class="layers" role="group" aria-label="Base map">
-        <button type="button" data-layer="map" aria-pressed="true">Map</button>
-        <button type="button" data-layer="sat" aria-pressed="false">Satellite</button>
+    <div class="gutter gutter-v" id="gutter-v" role="separator" aria-orientation="vertical" aria-label="Resize side panel" tabindex="0"></div>
+    <div class="right" id="right">
+      <div class="mapwrap">
+        <div id="map" role="application" aria-label="Map. Click to choose a location."></div>
+        <div class="layers" role="group" aria-label="Base map">
+          <button type="button" data-layer="map" aria-pressed="true">Map</button>
+          <button type="button" data-layer="sat" aria-pressed="false">Satellite</button>
+        </div>
       </div>
+      <div class="gutter gutter-h" id="gutter-h" role="separator" aria-orientation="horizontal" aria-label="Resize map" tabindex="0"></div>
+      <section class="details" id="details" aria-label="Details"></section>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

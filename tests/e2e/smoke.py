@@ -183,7 +183,7 @@ def main():
                 ("past-2016", "?lat=-16.25&lon=27.65&date=2016-01-20&cmp=2023", 1280),
                 ("no-cropland", "?lat=60.5&lon=100.5", 1280),
             ]:
-                ctx = b.new_context(viewport={"width": width, "height": 3000 if width > 900 else 900})
+                ctx = b.new_context(viewport={"width": width, "height": 900})
                 pg = ctx.new_page()
                 pg.on("console", lambda m, n=name: errors.append(f"[{n}] {m.type}: {m.text}") if m.type in ("error",) else None)
                 pg.on("pageerror", lambda e, n=name: errors.append(f"[{n}] pageerror: {e}"))
@@ -193,6 +193,14 @@ def main():
                     pg.wait_for_function("document.querySelector('.tabs') && document.getElementById('status').hidden || document.getElementById('status').classList.contains('error')", timeout=60000)
                     pg.wait_for_timeout(300)
                     pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
+                    if width > 900:
+                        # drag both splitters and check the layout follows
+                        gv = pg.locator("#gutter-v").bounding_box(); gh = pg.locator("#gutter-h").bounding_box()
+                        pg.mouse.move(gv["x"] + 3, gv["y"] + 300); pg.mouse.down(); pg.mouse.move(gv["x"] - 150, gv["y"] + 300, steps=5); pg.mouse.up()
+                        pg.mouse.move(gh["x"] + 300, gh["y"] + 3); pg.mouse.down(); pg.mouse.move(gh["x"] + 300, gh["y"] - 120, steps=5); pg.mouse.up()
+                        pg.wait_for_timeout(400)
+                        print("  sizes after drag:", pg.evaluate("[getComputedStyle(document.getElementById('app')).getPropertyValue('--left'), getComputedStyle(document.getElementById('app')).getPropertyValue('--map'), document.getElementById('panel').offsetWidth, document.querySelector('.mapwrap').offsetHeight]"))
+                        pg.screenshot(path=f"{OUT}/{name}-resized.png")
                     tab = pg.locator(".tabs button", has_text="El Niño")
                     if tab.count():
                         tab.click()
