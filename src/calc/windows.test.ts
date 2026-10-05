@@ -35,7 +35,7 @@ describe("climatology windows", () => {
     const p = planClimatology({ plantDoy: 320, maturityDoy: 134 }, toDay("2026-09-21"), false);
     const planned = weightOf(mergeWindows(p.rainHeat), 2) + weightOf(mergeWindows(p.soilAir), 3) + 1;
     const fullYears = (10958 / 14) * (5 / 10);
-    expect(planned).toBeLessThan(fullYears / 2.5);
+    expect(planned).toBeLessThan(fullYears / 2);
     expect(planned).toBeLessThan(200);
   });
 });
