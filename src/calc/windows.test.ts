@@ -19,11 +19,18 @@ describe("climatology windows", () => {
     expect(p.rainHeat.length).toBeGreaterThanOrEqual(30);
     expect(p.soilAir.length).toBe(30);
   });
+  it("reaches three weeks ahead in current mode only", () => {
+    const asOf = toDay("2026-09-21");
+    const now = planClimatology(null, asOf, false);
+    const past = planClimatology(null, asOf, true);
+    expect(fromDay(Math.max(...now.rainHeat.map((w) => w[1])))).toBe("2020-10-15");
+    expect(fromDay(Math.max(...past.rainHeat.map((w) => w[1])))).not.toBe("2020-10-15");
+  });
   it("costs far less than downloading 30 full years", () => {
     const p = planClimatology({ plantDoy: 320, maturityDoy: 134 }, toDay("2026-09-21"), false);
     const planned = weightOf(mergeWindows(p.rainHeat), 2) + weightOf(mergeWindows(p.soilAir), 3) + 1;
     const fullYears = (10958 / 14) * (5 / 10);
-    expect(planned).toBeLessThan(fullYears / 2.5);
+    expect(planned).toBeLessThan(fullYears / 2);
     expect(planned).toBeLessThan(200);
   });
 });

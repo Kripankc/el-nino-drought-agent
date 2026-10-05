@@ -191,8 +191,16 @@ def main():
                 pg.goto(f"http://localhost:{PORT}/{query}")
                 if query:
                     pg.wait_for_function("document.querySelector('.tabs') && document.getElementById('status').hidden || document.getElementById('status').classList.contains('error')", timeout=60000)
+                    # the El Nino impact block loads past seasons after the first view
+                    pg.wait_for_function("!document.querySelector('.ix .sk')", timeout=90000)
                     pg.wait_for_timeout(300)
                     pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
+                    if width > 900:
+                        pg.set_viewport_size({"width": width, "height": 3200})
+                        pg.wait_for_timeout(400)
+                        pg.locator("#panel").screenshot(path=f"{OUT}/{name}-panel.png")
+                        pg.set_viewport_size({"width": width, "height": 900})
+                        pg.wait_for_timeout(300)
                     if width > 900:
                         # drag both splitters and check the layout follows
                         gv = pg.locator("#gutter-v").bounding_box(); gh = pg.locator("#gutter-h").bounding_box()
