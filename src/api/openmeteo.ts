@@ -28,6 +28,10 @@ export type Status = (msg: string) => void;
 
 export class ApiError extends Error {}
 
+/** The hourly or daily request quota for this connection is used up. */
+export class QuotaError extends ApiError {}
+let quotaHit: { until: number; msg: string } | null = null;
+
 /** ERA5 grid is 0.25 deg; snapping requests to it maximises cache reuse. */
 export function snap(x: number): number {
   return Math.round(x * 4) / 4;
@@ -86,6 +90,8 @@ async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<
     if (hit && Date.now() - hit.t < ttlMs) return hit.v;
   } catch { /* storage unavailable: fetch instead */ }
   for (let attempt = 0; attempt < 6; attempt++) {
+    // After an hourly/daily refusal, fail fast instead of sending more requests
+    if (quotaHit && Date.now() < quotaHit.until) throw new QuotaError(quotaHit.msg);
     await reserve(requestWeight(url), status);
     const release = await slot();
     let r: Response;
@@ -102,8 +108,17 @@ async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<
         await new Promise((res) => setTimeout(res, 500 * 2 ** attempt)); // short back-off
         continue;
       }
-      // Minutely / hourly / daily quota: say which, and wait
-      status?.(`${reason || "The free weather service limit is reached."} Retrying in 60 s.`);
+      // Hourly / daily quota: retrying cannot help, so stop and explain
+      if (/hour|daily|day/i.test(reason)) {
+        const daily = /daily|day/i.test(reason) && !/hour/i.test(reason);
+        const msg = daily
+          ? "The free weather service's daily limit for your internet connection is used up. Places you have already opened still work. New places can be loaded again tomorrow."
+          : "The free weather service's hourly limit for your internet connection is used up. Places you have already opened still work. New places can be loaded again within the hour.";
+        quotaHit = { until: Date.now() + (daily ? 3_600_000 * 6 : 600_000), msg };
+        throw new QuotaError(msg);
+      }
+      // Per-minute limit: wait and retry
+      status?.("The free weather service is busy. Retrying in 60 s.");
       await new Promise((res) => setTimeout(res, 60_000));
       continue;
     }

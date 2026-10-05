@@ -19,6 +19,11 @@ describe("climatology windows", () => {
     expect(p.rainHeat.length).toBeGreaterThanOrEqual(30);
     expect(p.soilAir.length).toBe(30);
   });
+  it("skips the forecast-normal windows when sowing is far off", () => {
+    const far = planClimatology({ plantDoy: 320, maturityDoy: 134 }, toDay("2026-09-21"), false);   // sowing in 56 days
+    const near = planClimatology({ plantDoy: 280, maturityDoy: 100 }, toDay("2026-09-21"), false);  // sowing in 16 days
+    expect(far.rainHeat.length).toBeLessThan(near.rainHeat.length);
+  });
   it("reaches three weeks ahead in current mode only", () => {
     const asOf = toDay("2026-09-21");
     const now = planClimatology(null, asOf, false);
@@ -30,7 +35,7 @@ describe("climatology windows", () => {
     const p = planClimatology({ plantDoy: 320, maturityDoy: 134 }, toDay("2026-09-21"), false);
     const planned = weightOf(mergeWindows(p.rainHeat), 2) + weightOf(mergeWindows(p.soilAir), 3) + 1;
     const fullYears = (10958 / 14) * (5 / 10);
-    expect(planned).toBeLessThan(fullYears / 2);
+    expect(planned).toBeLessThan(fullYears / 2.5);
     expect(planned).toBeLessThan(200);
   });
 });

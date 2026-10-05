@@ -202,7 +202,7 @@ function seasonDots(x: PhaseImpact): HTMLElement {
 // =====================================================================
 export interface ComingView {
   fc: EnsembleDay[] | null;
-  fc15: { total: number; normal: number; percentile: number; hot: number | null; hotNormal: number | null } | null;
+  fc15: { total: number; normal: number | null; percentile: number | null; hot: number | null; hotNormal: number | null } | null;
   heatC: number | null;
   seasonal: SeasonalMonth[] | null;
   impact: PhaseImpact | null;
@@ -218,11 +218,14 @@ export function renderComing(box: HTMLElement, v: ComingView) {
   const tiles = el("div", { class: "ix-tiles" });
   if (v.fc15) {
     // Where these dates are normally (almost) dry, a percentile says little
-    const dryTime = v.fc15.normal < 5;
-    const st = pctStatus(v.fc15.percentile);
+    const nrm = v.fc15.normal;
+    const dryTime = nrm != null && nrm < 5;
+    const st = v.fc15.percentile != null ? pctStatus(v.fc15.percentile) : null;
     tiles.append(el("div", { class: "ix-tile" }, el("div", { class: "m-label" }, "Rain, next 15 days"),
-      el("div", { class: "ix-v" }, fmt.mm(v.fc15.total)), el("div", { class: "m-ctx" }, dryTime ? "usually dry on these dates" : `normal ${fmt.mm(v.fc15.normal)} for these dates`),
-      el("div", { class: "m-viz" }, vsNormalBars(v.fc15.total, v.fc15.normal, 220, ["forecast", "normal"], T.rain)), dryTime ? null : statusTag(st.s, st.word)));
+      el("div", { class: "ix-v" }, fmt.mm(v.fc15.total)),
+      el("div", { class: "m-ctx" }, nrm == null ? "ensemble median" : dryTime ? "usually dry on these dates" : `normal ${fmt.mm(nrm)} for these dates`),
+      nrm != null ? el("div", { class: "m-viz" }, vsNormalBars(v.fc15.total, nrm, 220, ["forecast", "normal"], T.rain)) : null,
+      st && !dryTime ? statusTag(st.s, st.word) : null));
     if (v.heatC != null && v.fc15.hot != null) {
       const more_ = v.fc15.hotNormal != null && v.fc15.hot > v.fc15.hotNormal;
       tiles.append(el("div", { class: "ix-tile" }, el("div", { class: "m-label" }, `Days above ${v.heatC} °C`),
@@ -258,9 +261,10 @@ export function renderComing(box: HTMLElement, v: ComingView) {
 
 /** Next-15-day ensemble median vs the same dates in 1991-2020. */
 export function forecastVsNormal(fc: EnsembleDay[], normal: { rain: number[]; hot: number[] }, heatC: number | null): ComingView["fc15"] {
-  if (!fc.length || normal.rain.length < 10) return null;
+  if (!fc.length) return null;
   const total = fc.reduce((a, d) => a + median(d.members.precip), 0);
   const hot = heatC != null ? fc.filter((d) => median(d.members.tmax) > heatC).length : null;
-  return { total, normal: median(normal.rain), percentile: percentileRank(normal.rain, total), hot, hotNormal: heatC != null ? median(normal.hot) : null };
+  const ok = normal.rain.length >= 10;   // the same-date normal is only loaded near or in the season
+  return { total, normal: ok ? median(normal.rain) : null, percentile: ok ? percentileRank(normal.rain, total) : null, hot, hotNormal: ok && heatC != null ? median(normal.hot) : null };
 }
 
