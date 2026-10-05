@@ -154,7 +154,10 @@ export function buildAdvice(x: AdviceInput): Advice[] {
         source: "NOAA CPC Relative Oceanic Niño Index",
       });
     } else {
-      const t = tendency(im);
+      // Late in the season a whole-season tendency no longer helps decisions
+      const left = x.season.harvest - x.today;
+      const t = x.inSeason && left < 30 ? null : tendency(im);
+      const lateNote = x.inSeason && left < 30;
       const clear = im.pRain < 0.05;
       const hist = `In ${t === "wet" ? im.wetter : im.drier} of ${im.n} past ${name} seasons here, rain for this crop season was ${t === "wet" ? "above" : "below"} the 1991–2020 normal (median ${Math.round(im.medianRainPct) > 0 ? "+" : ""}${Math.round(im.medianRainPct)}%)${clear ? "." : "; the difference from neutral seasons is not statistically clear."}`;
       const saveGrow = "FAO (2011) Save and Grow: a policymaker's guide to sustainable intensification of smallholder crop production";
@@ -168,10 +171,12 @@ export function buildAdvice(x: AdviceInput): Advice[] {
       } else if (t === "dry") {
         out.push({
           title: "Expect the rest of the season to stay drier than normal",
-          trigger: `${now}. ${hist}`,
-          action: mid
+          trigger: `${now}. ${hist}${x.rainPercentile != null ? ` Rain so far this season is at the ${Math.round(x.rainPercentile)}th percentile of 1991–2020.` : ""}`,
+          action: mid && mid[1] >= x.today
             ? `Keep crop residue or mulch on the soil and keep weeds down so they do not take water. Save irrigation water for the mid-season stage (${fmtDay(mid[0])} – ${fmtDay(mid[1])}).`
-            : "Keep crop residue or mulch on the soil and keep weeds down so they do not take water. Save irrigation water for flowering.",
+            : mid
+              ? "Keep crop residue or mulch on the soil and keep weeds down so they do not take water."
+              : "Keep crop residue or mulch on the soil and keep weeds down so they do not take water. Save irrigation water for flowering.",
           source: `${fao33}; ${saveGrow}`,
         });
       } else if (t === "wet") {
@@ -181,6 +186,8 @@ export function buildAdvice(x: AdviceInput): Advice[] {
           action: "Clear field drains, check for fungal disease after long wet spells, and split fertiliser applications so less is washed out.",
           source: "General field practice",
         });
+      } else if (lateNote) {
+        // nothing: the season is nearly over
       } else {
         out.push({
           title: `${name} has had no consistent effect on rain here`,

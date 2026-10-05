@@ -375,3 +375,9 @@ body.doc { height: auto; }
   .tabs { margin: 8px -16px 0; padding: 0 16px; }
 }
 .mapwrap { overflow: hidden; }
+
+/* Days not yet in ERA5 */
+.recent { margin: 14px 0 0; padding: 12px 14px; border: 1px dashed var(--line); border-radius: var(--r); }
+.recent-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recent-v { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+.tag-pre { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); background: var(--raised); padding: 2px 6px; border-radius: 4px; }

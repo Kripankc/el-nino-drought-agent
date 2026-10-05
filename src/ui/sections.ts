@@ -1,6 +1,6 @@
 import { Day, dayOfYear, fmtDay, fromDay, monthName, toDate, toDay, todayDay, ymd } from "../lib/dates";
 import { CropParamFile, LocalCrops } from "../api/static";
-import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, era5Windows, ensembleForecast, lastEra5Day, mergeDaily, seasonalMonthly } from "../api/openmeteo";
+import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, era5Windows, ensembleForecast, lastEra5Day, mergeDaily, recentRain as recentModelRain, seasonalMonthly } from "../api/openmeteo";
 import {
   Band, Daily, cumulative, cumulativeRainBand, doyBands, doyPercentile, hotDayCounts, indexOf,
   CLIM_END, CLIM_START, monthlyVsNormal, sameDatesNormal, seasonTotals, waterBalance,
@@ -101,6 +101,10 @@ export async function renderReport(c: RenderCtx) {
     items.forEach((m, i) => m.classList.toggle("last-row", i >= items.length - (items.length % 2 === 0 ? 2 : 1)));
   };
 
+  // Days not yet in ERA5 (it runs about six days behind): preliminary model rain
+  const recentBox = el("div", { class: "recent", hidden: "" });
+  if (current) root.append(recentBox);
+
   // El Nino / La Nina impact and the coming weeks: shown on their own when the
   // date falls in (or just before) an ENSO event
   const est = c.enso ? ensoState(c.enso, D, current) : null;
@@ -184,8 +188,9 @@ export async function renderReport(c: RenderCtx) {
   let fc15: ComingView["fc15"] = null;
   if (current) {
     c.setStatus(S.status.forecast);
-    const [f, s] = await Promise.allSettled([ensembleForecast(c.state.lat!, c.state.lon!), seasonalMonthly(c.state.lat!, c.state.lon!)]);
+    const [f, s, r] = await Promise.allSettled([ensembleForecast(c.state.lat!, c.state.lon!), seasonalMonthly(c.state.lat!, c.state.lon!), recentModelRain(c.state.lat!, c.state.lon!)]);
     if (!c.alive()) return;
+    if (r.status === "fulfilled" && r.value.length) renderRecent(recentBox, r.value, c.clim);
     const fsec = section(tNext, "Next 15 days");
     if (f.status === "fulfilled") { fc = f.value.days; renderForecast(fsec, c, fc, p); }
     else fsec.body.append(note(`Forecast unavailable: ${(f.reason as Error).message}`, "note error"));
@@ -278,6 +283,21 @@ export async function renderReport(c: RenderCtx) {
       el("a", { href: "methods.html" }, "Methods and sources")),
     more("Limits", el("ul", {}, ...S.limits.map((t) => el("li", {}, t))))));
   c.setStatus(null);
+}
+
+function renderRecent(box: HTMLElement, days: { day: Day; precip: number }[], clim: Daily) {
+  const total = days.reduce((a, d) => a + d.precip, 0);
+  const a = days[0].day;
+  const b = days[days.length - 1].day;
+  const norm = sameDatesNormal(clim, a, b, null).rain;
+  const range = `${fmtDay(a).replace(/ \d{4}$/, "")} – ${fmtDay(b).replace(/ \d{4}$/, "")}`;
+  const wettest = days.reduce((m, d) => (d.precip > m.precip ? d : m), days[0]);
+  box.hidden = false;
+  box.replaceChildren(
+    el("div", { class: "recent-h" }, el("span", { class: "m-label" }, `Since the last observation · ${range}`), el("span", { class: "tag-pre" }, "Preliminary")),
+    el("div", { class: "recent-v" }, el("span", { class: "ix-v" }, fmt.mm(total)),
+      el("span", { class: "m-ctx" }, `${norm.length >= 10 ? `normal ${fmt.mm(median(norm))} for these days` : ""}${wettest.precip >= 1 ? `${norm.length >= 10 ? " · " : ""}most on ${fmtDay(wettest.day).replace(/ \d{4}$/, "")} (${fmt.mm(wettest.precip)})` : ""}`)),
+    el("p", { class: "caption" }, "ECMWF IFS short-range forecasts via Open-Meteo, not observations. These days are not yet in ERA5, so they are not included in the season totals above."));
 }
 
 interface History { all: Daily; lastY: number; comp: Composite | null }

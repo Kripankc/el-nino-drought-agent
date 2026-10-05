@@ -143,6 +143,8 @@ export interface PhaseImpact {
   months: MonthImpact[];
   /** Median accumulated rain since sowing across phase seasons, per day of season */
   curve: (number | null)[];
+  /** 1991-2020 mean rain per day of season, for comparing part of a month */
+  normalByDay: number[];
   lastCurve: (number | null)[] | null;
 }
 
@@ -237,6 +239,7 @@ export function phaseImpact(
     last: lastP ? { year: lastP.year, rainPct: lastP.rainPct, tempAnom: lastP.tempAnom, peak: seasonPeak(enso, seasonFor(lastP.year), phase) } : null,
     months,
     curve,
+    normalByDay: Array.from({ length }, (_, k) => mean(finite(normalYears.map((y) => sumOver(y, [k]))))),
     lastCurve: lastP ? cumulative(all, "precip", seasonFor(lastP.year).plant, length) : null,
   };
 }

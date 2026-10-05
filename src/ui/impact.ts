@@ -98,7 +98,7 @@ export function renderImpact(box: HTMLElement, v: ImpactView) {
   const tiles = el("div", { class: "ix-tiles" });
   const tile = (label: string, value: string, ctx: string, viz?: Node | null, cls = "") =>
     tiles.append(el("div", { class: `ix-tile ${cls}` }, el("div", { class: "m-label" }, label), el("div", { class: "ix-v" }, value), el("div", { class: "m-ctx" }, ctx), viz ?? null));
-  tile(`Typical ${name} season`, fmt.pct(x.medianRainPct), `rain vs normal · ${x.drier} of ${x.n} drier`, seasonDots(x));
+  tile(`Past ${name} seasons`, fmt.pct(x.medianRainPct), `median rain vs normal · ${x.drier} of ${x.n} drier`, seasonDots(x));
   if (x.strong && (v.state.value == null || Math.abs(v.state.value) >= 1.5 || v.state.status === "expected")) {
     tile(`Strong ${name} seasons`, fmt.pct(x.strong.medianRainPct), `${x.strong.drier} of ${x.strong.n} drier · ${x.strong.years.join(", ")}`);
   }
@@ -110,7 +110,7 @@ export function renderImpact(box: HTMLElement, v: ImpactView) {
     const pr = curves.length >= 10 ? percentileRank(curves.map((cv) => cv[k]), mine![k]!) : null;
     const stt = pr != null ? pctStatus(pr) : null;
     tile(v.current ? "This season so far" : "This season", fmt.pct(pct),
-      `${fmt.mm(mine![k]!)} by ${fmtDay(plant + k)}${typPct != null ? ` · typical ${name} ${fmt.pct(typPct)}` : ""}`,
+      `${fmt.mm(mine![k]!)} by ${fmtDay(plant + k)}${typPct != null ? ` · past ${name} years ${fmt.pct(typPct)}` : ""}`,
       stt ? statusTag(stt.s, stt.word) : null, "now");
   } else if (v.current && plant > v.obsUntil) {
     tile("Next season", `${plant - v.obsUntil} days`, `until sowing on ${fmtDay(plant)}`, null, "now");
@@ -125,14 +125,14 @@ export function renderImpact(box: HTMLElement, v: ImpactView) {
   // ---- chart
   const bandPts = bands.map((bd: Band, i) => ({ day: plant + i, lo: bd.p10, mid: bd.p50, hi: bd.p90 }));
   const lines: { label: string; color: string; points: { day: Day; y: number | null }[]; width?: number; dash?: string }[] = [
-    { label: `Typical ${name} (median)`, color, points: x.curve.map((y, i) => ({ day: plant + i, y })), width: 2.2 },
+    { label: `Past ${name} years (median)`, color, points: x.curve.map((y, i) => ({ day: plant + i, y })), width: 2.2 },
   ];
   if (x.lastCurve) lines.push({ label: `${x.last!.year} (last ${name})`, color, points: x.lastCurve.map((y, i) => ({ day: plant + i, y })), width: 1.4, dash: "4 3" });
   if (mine && k >= 0) lines.push({ label: v.current ? "This season" : `${v.focus.year} season`, color: T.ink, points: mine.map((y, i) => ({ day: plant + i, y })), width: 2.2 });
   s.body.append(el("div", { class: "m-label", style: "margin:14px 0 2px" }, `Rain since sowing, ${seasonLabel(v.focus)}`));
   s.body.append(keys([
     ...(mine && k >= 0 ? [{ label: v.current ? "This season" : `${v.focus.year}`, color: T.ink, kind: "line" as const }] : []),
-    { label: `Typical ${name}`, color, kind: "line" },
+    { label: `Past ${name} years`, color, kind: "line" },
     ...(x.last ? [{ label: `${x.last.year}`, color, kind: "dot" as const }] : []),
     { label: "Normal range", color: T.band, kind: "band" },
   ]));
@@ -140,27 +140,43 @@ export function renderImpact(box: HTMLElement, v: ImpactView) {
 
   // ---- month by month
   const ix = indexOf(v.obs);
+  // A month still in progress counts once 20 or more of its days are observed,
+  // compared with the normal for the same days (otherwise the latest, often
+  // most telling, month would be missing).
+  let partial: { m: number; to: Day } | null = null;
   const obsPct = x.months.map((mo) => {
-    if (plant + mo.to > until || mo.normal < 10) return null;
+    const end = Math.min(plant + mo.to, until);
+    const n = end - (plant + mo.from) + 1;
+    if (n < Math.min(20, mo.days)) return null;
     let acc = 0;
-    for (let d = plant + mo.from; d <= plant + mo.to; d++) { const p = v.obs.precip[ix.get(d) ?? -1]; if (p == null) return null; acc += p; }
-    return (100 * (acc - mo.normal)) / mo.normal;
+    let norm = 0;
+    for (let d = plant + mo.from; d <= end; d++) {
+      const p = v.obs.precip[ix.get(d) ?? -1];
+      if (p == null) return null;
+      acc += p;
+      norm += x.normalByDay[d - plant] ?? 0;
+    }
+    if (norm < 10) return null;
+    if (end < plant + mo.to) partial = { m: mo.m, to: end };
+    return (100 * (acc - norm)) / norm;
   });
-  const rows = [{ label: `Typical ${name}`, values: x.months.map((m) => m.medianPct) }];
-  if (obsPct.some((p) => p != null)) rows.push({ label: v.current ? "This season" : `${v.focus.year}`, values: obsPct });
+  const rows = [{ label: `Past ${name} years`, values: x.months.map((m) => m.medianPct) }];
+  if (obsPct.some((p) => p != null)) rows.push({ label: v.current ? "This year" : `${v.focus.year}`, values: obsPct });
   s.body.append(el("div", { class: "m-label", style: "margin:16px 0 8px" }, "Month by month, rain vs normal"));
   s.body.append(compareStrip(x.months.map((m) => monthName(m.m)), rows));
+  const pm = partial as { m: number; to: Day } | null;
+  if (pm) s.body.append(el("p", { class: "caption" }, `${monthName(pm.m)}: observed days to ${fmtDay(pm.to)} only, against the normal for the same days.`));
 
   // ---- heat
   const hot = x.pTemp < 0.05;
   s.body.append(el("p", { class: "sig", style: "margin-top:12px" },
     `Heat: ${name} seasons here were ${Math.abs(x.medianTempAnom) < 0.05 ? "about as warm as" : `a median ${Math.abs(x.medianTempAnom).toFixed(1)} °C ${x.medianTempAnom > 0 ? "warmer" : "cooler"} than`} the long-term trend (daily maximum)${hot ? `, a clear difference (p = ${pFmt(x.pTemp)})` : `; not a clear difference (p = ${pFmt(x.pTemp)})`}.`));
 
-  s.body.append(more("Table", tableView(["Month", "Normal (mm)", `Typical ${name}`, rows[1]?.label ?? "This season"],
+  s.body.append(more("Table", tableView(["Month", "Normal (mm)", `Past ${name} years`, rows[1]?.label ?? "This year"],
     x.months.map((m, i) => [monthName(m.m), Math.round(m.normal), m.medianPct != null ? fmt.pct(m.medianPct) : null, obsPct[i] != null ? fmt.pct(obsPct[i]!) : null]))));
   s.about(
     `Each year's ${v.what} from 1950 to the last complete season, from ERA5. A season counts as ${name} when more than half of its days fall in an official NOAA CPC ${name} episode (${x.years.length} seasons: ${x.years.join(", ")}).`,
-    `“Typical” is the median of those seasons. Rain is compared with the 1991–2020 average for the same days. The p-value compares ${name} seasons with neutral seasons using a rank-based permutation test; below 0.05 means the difference is unlikely to be chance. Strong events are those whose episode peaked at ±1.5 °C or more.`,
+    `“Past ${name} years” is the median of those seasons, not this year's rain. Rain is compared with the 1991–2020 average for the same days. The p-value compares ${name} seasons with neutral seasons using a rank-based permutation test; below 0.05 means the difference is unlikely to be chance. Strong events are those whose episode peaked at ±1.5 °C or more.`,
     `Past ${name} seasons are not a forecast: each event is different, and other influences (such as the Indian Ocean) also matter. ${v.current ? "The current event is not yet counted among past seasons." : `The ${v.focus.year} season is left out of the typical values so it is not compared with itself.`}`,
     el("p", { class: "caption" }, `ERA5 via Open-Meteo · NOAA CPC ${v.enso.index} episodes`));
 }
@@ -220,7 +236,7 @@ export function renderComing(box: HTMLElement, v: ComingView) {
     const ms = v.seasonal.slice(0, 6);
     const rows: { label: string; values: (number | null)[] }[] = [{ label: "Forecast", values: ms.map((m) => m.precipPct) }];
     if (v.impact) {
-      rows.push({ label: `Past ${phaseName(v.impact.phase)}`, values: ms.map((m) => v.impact!.months.find((x) => x.m === Number(m.month.slice(5, 7)))?.medianPct ?? null) });
+      rows.push({ label: `Past ${phaseName(v.impact.phase)} years`, values: ms.map((m) => v.impact!.months.find((x) => x.m === Number(m.month.slice(5, 7)))?.medianPct ?? null) });
     }
     s.body.append(el("div", { class: "m-label", style: "margin:16px 0 8px" }, "Rain vs normal, next months"));
     s.body.append(compareStrip(ms.map((m) => monthName(Number(m.month.slice(5, 7)))), rows));
