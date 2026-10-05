@@ -1,7 +1,7 @@
 // Custom visual components (plain SVG/HTML).
 import { el } from "./dom";
 import { theme } from "./charts";
-import { Day, fmtDay, monthName } from "../lib/dates";
+import { Day, monthName } from "../lib/dates";
 
 const NS = "http://www.w3.org/2000/svg";
 function svg(w: number, h: number, label: string): SVGSVGElement {
@@ -153,45 +153,6 @@ export function cropCalendar(rows: CalRow[], todayDoy: number | null, width: num
     });
   }
   return s;
-}
-
-// ------------------------------------------------------------------ forecast list
-export interface FcDay { day: Day; rain: number; tmin: number; tmax: number }
-
-export function forecastList(days: FcDay[], heat: number | null): HTMLElement {
-  const t = theme();
-  const lo = Math.floor(Math.min(...days.map((d) => d.tmin)));
-  const hi = Math.ceil(Math.max(...days.map((d) => d.tmax)));
-  const maxRain = Math.max(10, ...days.map((d) => d.rain));
-  const pos = (v: number) => ((v - lo) / Math.max(1, hi - lo)) * 100;
-  const wrap = el("div", {});
-  wrap.append(el("div", { class: "fc-head" }, el("span", {}, "Day"), el("span", {}, "Rain"), el("span", { style: "text-align:right" }, "Min"), el("span", {}, ""), el("span", {}, "Max")));
-  days.forEach((d, i) => {
-    const date = new Date(d.day * 86_400_000);
-    const name = i === 0 ? "Today" : date.toLocaleDateString("en", { weekday: "short", timeZone: "UTC" });
-    const dm = `${date.getUTCDate()} ${monthName(date.getUTCMonth() + 1)}`;
-    const wet = d.rain >= 0.5;
-    const track = el("div", { class: "fc-track" });
-    const seg = el("i", {});
-    seg.style.left = `${pos(d.tmin)}%`;
-    seg.style.width = `${Math.max(2, pos(d.tmax) - pos(d.tmin))}%`;
-    seg.style.background = `linear-gradient(90deg, ${t.cool}, ${d.tmax >= (heat ?? 99) ? t.heat : "#e6a23c"})`;
-    track.append(seg);
-    if (heat != null && heat > lo && heat < hi) {
-      const mark = el("b", {});
-      mark.style.left = `${pos(heat)}%`;
-      track.append(mark);
-    }
-    const bar = el("i", {});
-    bar.style.width = `${Math.max(wet ? 3 : 0, (d.rain / maxRain) * 26)}px`;
-    wrap.append(el("div", { class: "fc-row", title: `${fmtDay(d.day)}: rain ${d.rain.toFixed(1)} mm, ${Math.round(d.tmin)}–${Math.round(d.tmax)} °C` },
-      el("span", { class: "fc-day" }, name, el("small", {}, i === 0 ? "" : dm.split(" ")[0])),
-      el("span", { class: `fc-rain${wet ? "" : " dry"}` }, wet ? bar : null, wet ? `${d.rain < 10 ? d.rain.toFixed(1) : Math.round(d.rain)}` : "–"),
-      el("span", { class: "fc-min" }, `${Math.round(d.tmin)}°`),
-      track,
-      el("span", { class: `fc-max${heat != null && d.tmax > heat ? " hot" : ""}` }, `${Math.round(d.tmax)}°`)));
-  });
-  return wrap;
 }
 
 // ------------------------------------------------------------------ outlook strip

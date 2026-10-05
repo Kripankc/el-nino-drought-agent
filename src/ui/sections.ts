@@ -12,8 +12,8 @@ import { Advice, buildAdvice } from "../calc/advice";
 import { S } from "../strings";
 import { cropName } from "../lib/cropnames";
 import { Sec, chart, el, fmt, more, note, resetCharts, section, tabs } from "./dom";
-import { beeswarm, ensoArea, keys, monthBars, r1, sparkline, tableView, theme, timeChart } from "./charts";
-import { CalRow, cropCalendar, forecastList, metric, needBars, outlookStrip, pctBar, pctStatus, seasonLine, statusTag } from "./visuals";
+import { FcRow, beeswarm, ensoArea, forecastRain, forecastTemp, keys, monthBars, r1, sparkline, tableView, theme, timeChart } from "./charts";
+import { CalRow, cropCalendar, metric, needBars, outlookStrip, pctBar, pctStatus, seasonLine, statusTag } from "./visuals";
 import type { State } from "../main";
 import { MIN_SHARE } from "../calc/crops";
 import { ndviSeries } from "../api/ndvi";
@@ -541,9 +541,9 @@ function renderSoilAir(s: Sec, c: RenderCtx, obs: Daily, range: [Day, Day], asOf
   const at = asOf;
   const ix = indexOf(obs);
   const vars: { v: "sm" | "rh" | "et0"; label: string; unit: string; scale: number; lo: string; hi: string; dp: number }[] = [
-    { v: "sm", label: "Soil moisture, top 1 m", unit: "% vol", scale: 100, lo: "Dry", hi: "Wet", dp: 0 },
-    { v: "rh", label: "Relative humidity", unit: "%", scale: 1, lo: "Dry", hi: "Humid", dp: 0 },
-    { v: "et0", label: "Evaporation demand (ET₀)", unit: "mm/day", scale: 1, lo: "Low", hi: "High", dp: 1 },
+    { v: "sm", label: "Soil moisture, top 1 m", unit: "% vol", scale: 100, lo: "Drier", hi: "Wetter", dp: 0 },
+    { v: "rh", label: "Relative humidity", unit: "%", scale: 1, lo: "Drier", hi: "More humid", dp: 0 },
+    { v: "et0", label: "Evaporation demand (ET₀)", unit: "mm/day", scale: 1, lo: "Lower", hi: "Higher", dp: 1 },
   ];
   let smOut: { pct: number | null; value: number | null } = { pct: null, value: null };
   const wrap = el("div", {});
@@ -557,7 +557,10 @@ function renderSoilAir(s: Sec, c: RenderCtx, obs: Daily, range: [Day, Day], asOf
     const row = el("div", { class: "var" });
     const left = el("div", {}, el("div", { class: "var-l" }, x.label),
       el("div", { class: "var-v" }, raw != null ? `${(raw * x.scale).toFixed(x.dp)} ` : "–", raw != null ? el("span", { class: "m-unit" }, x.unit) : null));
-    if (pct != null) left.append(el("div", { class: "var-p" }, pctBar(pct, 200, x.lo, x.hi)));
+    if (pct != null) {
+      const p = Math.round(pct);
+      left.append(el("div", { class: "var-p" }, p >= 50 ? `${x.hi} than in ${p}% of years on this date` : `${x.lo} than in ${100 - p}% of years on this date`));
+    }
     row.append(left);
     const pts = seriesOn(obs, x.v, from, at, x.scale);
     if (finite(pts.map((q) => q.y)).length) {
@@ -576,21 +579,30 @@ function renderSoilAir(s: Sec, c: RenderCtx, obs: Daily, range: [Day, Day], asOf
 // =====================================================================
 function renderForecast(s: Sec, c: RenderCtx, days: EnsembleDay[], p: CropParams | null) {
   void c;
-  const rows = days.map((d) => ({
+  const rows: FcRow[] = days.map((d) => ({
     day: d.day,
     rain: quantile(d.members.precip, 0.5), rainHi: quantile(d.members.precip, 0.9),
+    pRain: d.members.precip.filter((x) => x >= 1).length / d.members.precip.length,
     tmax: quantile(d.members.tmax, 0.5), tmin: quantile(d.members.tmin, 0.5),
   }));
+  const T = theme();
   const total = rows.reduce((a, r) => a + r.rain, 0);
   const thr = p?.heat_c ?? null;
   const hot = thr != null ? rows.filter((r) => r.tmax > thr).length : 0;
+  const hottest = rows.reduce((m, r) => (r.tmax > m.tmax ? r : m), rows[0]);
+  const likelyWet = rows.filter((r) => r.pRain >= 0.5).length;
   s.body.append(el("div", { class: "lede" },
-    el("div", {}, el("span", { class: "lede-v" }, fmt.mm(total)), el("span", { class: "lede-l" }, `rain, ${rows.filter((r) => r.rain >= 0.5).length} wet days`)),
-    thr != null ? el("div", {}, el("span", { class: "lede-v" }, `${hot}`), el("span", { class: "lede-l" }, `days above ${thr} °C`)) : null));
-  s.body.append(forecastList(rows, thr));
-  s.body.append(more("Table", tableView(["Date", "Rain (mm)", "Rain, wet case (mm)", "Min (°C)", "Max (°C)"],
-    rows.map((r) => [fromDay(r.day), r1(r.rain), r1(r.rainHi), r1(r.tmin), r1(r.tmax)]))));
-  s.about("Median of the ECMWF ensemble for each day. Rain in mm; the bar length shows the amount. The coloured bar spans the day's minimum to maximum temperature; the thin orange line marks the crop's heat threshold. The table adds a wet case (90th percentile of the ensemble).",
+    el("div", {}, el("span", { class: "lede-v" }, fmt.mm(total)), el("span", { class: "lede-l" }, `rain in 15 days · ${likelyWet} likely wet days`)),
+    el("div", {}, el("span", { class: "lede-v" }, `${Math.round(hottest.tmax)}°`), el("span", { class: "lede-l" }, `hottest, ${fmtDay(hottest.day).replace(/ \d{4}$/, "")}${thr != null && hot ? ` · ${hot} days above ${thr} °C` : ""}`))));
+  s.body.append(el("div", { class: "m-label", style: "margin:10px 0 2px" }, "Temperature"));
+  s.body.append(keys([{ label: "Daytime high", color: T.heat, kind: "line" }, { label: "Night low", color: T.cool, kind: "line" }]));
+  chart(s.body, (w) => forecastTemp(w, rows, thr));
+  s.body.append(el("div", { class: "m-label", style: "margin:14px 0 2px" }, "Rain"));
+  s.body.append(el("p", { class: "caption", style: "margin:0 0 4px" }, "Bars: expected rain (mm). Percent under each day: chance of at least 1 mm."));
+  chart(s.body, (w) => forecastRain(w, rows));
+  s.body.append(more("Table", tableView(["Date", "Rain (mm)", "Rain, wet case (mm)", "Chance of rain", "Min (°C)", "Max (°C)"],
+    rows.map((r) => [fromDay(r.day), r1(r.rain), r1(r.rainHi), `${Math.round(r.pRain * 100)}%`, r1(r.tmin), r1(r.tmax)]))));
+  s.about("Each value is the middle (median) of the 51 ECMWF ensemble forecasts for that day. Chance of rain is the share of those forecasts with at least 1 mm. The table adds a wet case (90th percentile). Forecasts beyond about 10 days are much less certain.",
     el("p", { class: "caption" }, `ECMWF IFS 0.25° ensemble, ${days[0]?.members.precip.length ?? 0} members, via Open-Meteo`));
 }
 
