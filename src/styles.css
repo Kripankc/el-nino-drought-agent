@@ -118,12 +118,6 @@ button, input, select { font: inherit; color: inherit; }
 body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select: none; }
 body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
 
-.layers {
-  position: absolute; top: 12px; right: 12px; z-index: 500; display: flex; padding: 3px; gap: 2px;
-  background: var(--panel); border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-}
-.layers button { border: 0; background: none; padding: 5px 10px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
-.layers button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
 
 @media (max-width: 900px) {
   .app { display: flex; flex-direction: column; height: auto; }
