@@ -221,3 +221,39 @@ export function outlookStrip(items: { label: string; pct: number | null; tAnom: 
     showStage ? el("span", { class: "flw" }, "Flowering stage") : null);
   return el("div", {}, g, legend);
 }
+
+// ------------------------------------------------------------------ comparison strip
+/** Rows of monthly % departures on a shared diverging scale, one column per month. */
+export function compareStrip(months: string[], rows: { label: string; values: (number | null)[]; note?: string }[]): HTMLElement {
+  const t = theme();
+  const g = el("div", { class: "cs" });
+  g.style.gridTemplateColumns = `minmax(76px, auto) repeat(${months.length}, minmax(0, 1fr))`;
+  g.append(el("span", {}));
+  for (const m of months) g.append(el("span", { class: "cs-m" }, m));
+  for (const r of rows) {
+    g.append(el("span", { class: "cs-l" }, r.label));
+    r.values.forEach((v, i) => {
+      const c = divergingColor(v);
+      const cell = el("span", { class: "cs-c", title: `${r.label}, ${months[i]}: ${v == null ? "no value (little or no rain normally, or outside the season)" : `${v > 0 ? "+" : ""}${Math.round(v)}% vs normal`}` }, v == null ? "–" : `${v > 0 ? "+" : ""}${Math.round(v)}%`);
+      cell.style.background = c.bg;
+      cell.style.color = c.fg;
+      g.append(cell);
+    });
+  }
+  const grad = el("i", {});
+  grad.style.background = `linear-gradient(90deg, ${t.dry}, ${t.line2}, ${t.wet})`;
+  return el("div", {}, g, el("div", { class: "ol-legend" }, el("span", { class: "grad" }, "Drier", grad, "Wetter")));
+}
+
+/** Two thin bars: a value against its normal. */
+export function vsNormalBars(value: number, normal: number, width: number, labels: [string, string], color: string): SVGSVGElement {
+  const t = theme();
+  const s = svg(width, 34, `${labels[0]} ${Math.round(value)}, ${labels[1]} ${Math.round(normal)}`);
+  const max = Math.max(value, normal, 1);
+  const w = (v: number) => Math.max(2, (v / max) * (width - 92));
+  add(s, "rect", { x: 0, y: 3, width: w(value), height: 6, rx: 3, fill: color });
+  add(s, "text", { x: w(value) + 6, y: 10, "font-size": 10.5, fill: t.ink2 }, `${Math.round(value)} ${labels[0]}`);
+  add(s, "rect", { x: 0, y: 19, width: w(normal), height: 6, rx: 3, fill: t.band });
+  add(s, "text", { x: w(normal) + 6, y: 26, "font-size": 10.5, fill: t.ink3 }, `${Math.round(normal)} ${labels[1]}`);
+  return s;
+}

@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { fromDay, toDay, dayOfYear } from "../lib/dates";
 import { detrend, permutationTest, percentileRank, quantile, rankPermutationTest, ranks } from "./stats";
 import { effectiveRain, kcOnDay, seasonForYear, seasonLength, seasonStatus, stagePlan } from "./season";
-import { Daily, cumulative, cumulativeRainBand, monthlyVsNormal, seasonTotals, waterBalance } from "./climate";
-import { EnsoData, composite, episodeMonths, seasonPhase } from "./enso";
+import { Daily, cumulative, cumulativeRainBand, monthlyVsNormal, sameDatesNormal, seasonTotals, waterBalance } from "./climate";
+import { EnsoData, composite, ensoState, episodeMonths, phaseImpact, seasonPeak, seasonPhase, tendency } from "./enso";
 import { cropName } from "../lib/cropnames";
 
 function constDaily(from: string, to: string, v: Partial<Record<keyof Daily, number>>): Daily {
@@ -152,5 +152,65 @@ describe("crop names", () => {
     expect(cropName("maizefor")).toBe("Maize (forage)");
     expect(cropName("sweetpotato")).toBe("Sweet potato");
     expect(cropName("maize")).toBe("Maize");
+  });
+});
+
+describe("phase impact", () => {
+  // Synthetic: 1960-2020, season 1 Jun - 30 Sep. Every 4th year is an El Nino
+  // season with half the daily rain; the others get 5 mm/day.
+  const cal = { plantDoy: 152, maturityDoy: 273 };
+  const seasonFor = (y: number) => seasonForYear(cal, y);
+  const ninoYears = Array.from({ length: 61 }, (_, k) => 1960 + k).filter((y) => y % 4 === 0);
+  const enso: EnsoData = {
+    generated_utc: "", index: "RONI", index_source: "", definition: "", start: "1950-01", values: [],
+    episodes: ninoYears.map((y) => ({ type: "El Nino" as const, start: `${y}-04`, end: `${y}-12`, peak: y === 1972 || y === 1988 || y === 2000 ? 2.0 : 1.0 })),
+    run_in_progress: null, latest: { month: "", value: null }, seas5_nino34: null,
+  };
+  const all = constDaily("1960-01-01", "2020-12-31", { precip: 5 });
+  all.day.forEach((d, i) => { const y = Number(fromDay(d).slice(0, 4)); if (ninoYears.includes(y)) all.precip[i] = 2.5; });
+  const comp = composite(seasonTotals(all, seasonFor, 1960, 2020), seasonFor, enso)!;
+
+  it("finds the typical departure, the last event and the month-by-month pattern", () => {
+    const x = phaseImpact(all, comp, seasonFor, enso, "El Nino")!;
+    expect(x.n).toBe(ninoYears.length);
+    expect(x.drier).toBe(x.n);
+    expect(x.medianRainPct).toBeLessThan(-40);
+    expect(x.pRain).toBeLessThan(0.05);
+    expect(x.last!.year).toBe(2020);
+    expect(x.months.map((m) => m.m)).toEqual([6, 7, 8, 9]);
+    for (const m of x.months) expect(m.medianPct!).toBeLessThan(-40);
+    expect(x.curve[9]).toBeCloseTo(25, 6);                 // 10 days x 2.5 mm
+    expect(x.strong!.years).toEqual([1972, 1988, 2000]);
+    expect(tendency(x)).toBe("dry");
+  });
+  it("excludes the season being examined", () => {
+    const x = phaseImpact(all, comp, seasonFor, enso, "El Nino", 2020)!;
+    expect(x.years).not.toContain(2020);
+    expect(x.last!.year).toBe(2016);
+    expect(phaseImpact(all, comp, seasonFor, enso, "El Nino", 1988)!.last!.year).toBe(1984);
+  });
+  it("reads the episode peak covering a season", () => {
+    expect(seasonPeak(enso, seasonFor(1972), "El Nino")).toBe(2.0);
+    expect(seasonPeak(enso, seasonFor(1973), "El Nino")).toBeNull();
+  });
+  it("derives the ENSO state for current and past dates", () => {
+    const e: EnsoData = { ...enso, run_in_progress: { type: "El Nino", seasons_so_far: 3 }, latest: { month: "2026-08", value: 1.2 } };
+    expect(ensoState(e, toDay("2026-09-01"), true)).toMatchObject({ phase: "El Nino", status: "developing" });
+    expect(ensoState(enso, toDay("1972-07-01"), false)).toMatchObject({ phase: "El Nino", status: "active" });
+    expect(ensoState(enso, toDay("1973-07-01"), false)).toBeNull();
+    const f: EnsoData = { ...enso, latest: { month: "2026-08", value: 0.1 }, seas5_nino34: { source: "", description: "", months: ["a", "b", "c"], anomaly_c: [-0.6, -0.8, -0.9] } };
+    expect(ensoState(f, toDay("2026-09-01"), true)).toMatchObject({ phase: "La Nina", status: "expected" });
+  });
+});
+
+describe("same-dates normal", () => {
+  it("sums rain and counts hot days on the same dates of each reference year", () => {
+    const clim = constDaily("1991-01-01", "2020-12-31", { precip: 2, tmax: 31 });
+    const r = sameDatesNormal(clim, toDay("2026-10-01"), toDay("2026-10-15"), 30);
+    expect(r.rain.length).toBe(30);
+    expect(r.rain[0]).toBe(30);
+    expect(r.hot[0]).toBe(15);
+    // a window crossing the year end drops 2020 (it would need 2021 data)
+    expect(sameDatesNormal(clim, toDay("2026-12-25"), toDay("2027-01-05"), null).rain.length).toBe(29);
   });
 });

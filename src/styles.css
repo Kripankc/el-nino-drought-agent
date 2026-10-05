@@ -202,6 +202,26 @@ h1.place { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing:
 .recs-ok { display: flex; gap: 10px; align-items: center; color: var(--ink-2); padding: 8px 0; }
 .recs-ok::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
 
+/* ENSO impact and coming weeks (left panel) */
+.ix > .sec { margin-top: 26px; padding: 0; border-bottom: 0; }
+.ix .sec-h h2 { font-size: 15px; }
+.impact .sec-h h2::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.impact.nino .sec-h h2::before { background: var(--nino); }
+.impact.nina .sec-h h2::before { background: var(--nina); }
+.ix-state { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--ink-3); margin: 2px 0 12px; }
+.ix-state .phase { margin-left: 0; vertical-align: 0; }
+.ix-tiles { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.ix-tile { padding: 12px 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -1px -1px 0; min-width: 0; }
+.ix-v { font-size: 22px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.2; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ix-tile .m-viz svg { display: block; max-width: 100%; height: auto; }
+.ix-dots { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; }
+.ix-dots i { width: 9px; height: 9px; border-radius: 2px; }
+.ix .sig { margin: 10px 0 0; }
+.cs { display: grid; gap: 3px; align-items: center; }
+.cs-m { text-align: center; font-size: 11.5px; color: var(--ink-3); }
+.cs-l { font-size: 12px; color: var(--ink-2); padding-right: 8px; white-space: nowrap; }
+.cs-c { height: 34px; border-radius: 5px; display: grid; place-items: center; font-weight: 600; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; }
+
 /* Tabs */
 .tabs {
   position: sticky; top: 0; z-index: 15; display: flex; gap: 22px; margin: 0 -24px; padding: 0 24px;
