@@ -29,6 +29,8 @@
           <tr><td>Crops grown at a location</td><td>CROPGRIDS v1.08, harvested area of 173 crops circa 2020 (Tang et al. 2024, <i>Scientific Data</i> 11:413)</td><td>0.05°, aggregated to 0.25°</td></tr>
           <tr><td>Sowing and maturity dates</td><td>GGCMI Phase 3 crop calendar, rainfed and irrigated (Jägermeyr et al. 2021, <i>Nature Food</i> 2:873–885)</td><td>0.5°</td></tr>
           <tr><td>Crop coefficients and stage lengths</td><td>FAO Irrigation and Drainage Paper 56 (Allen et al. 1998), Tables 11 and 12</td><td>Per crop</td></tr>
+          <tr><td>Satellite greenness at the point</td><td>MODIS MOD13Q1 v061 NDVI, 16-day composites, pixel reliability good or marginal only (Didan 2021, NASA LP DAAC), via the <a href="https://modis.ornl.gov/data/modis_webservice.html">ORNL DAAC MODIS Web Service</a></td><td>250 m, 16-day, 2000–present</td></tr>
+          <tr><td>Map data layers</td><td>NASA GIBS: MODIS Terra NDVI (8-day), GPM IMERG precipitation rate (daily), SMAP L4 root-zone soil moisture (daily). Shown for the selected date when it is in the past, else the latest image</td><td>250 m – 10 km</td></tr>
           <tr><td>Place search and map</td><td>Place search: OpenStreetMap Nominatim. Base map: Esri World Imagery with World Boundaries and Places labels (no API key), with OpenStreetMap tiles as fallback</td><td>–</td></tr>
         </tbody>
       </table>
@@ -38,6 +40,8 @@
       <h2>Calculations</h2>
       <h3>Normal range</h3>
       <p>The normal range is 1991–2020, the current WMO standard reference period. For daily variables, the 10th, 50th and 90th percentiles use every day within ±7 days of the calendar date across the 30 years. For rainfall since sowing, each 1991–2020 season is accumulated from its own sowing date, and percentiles are taken across seasons for each day after sowing.</p>
+      <h3>Which crops are offered</h3>
+      <p>The crop menu and the crop calendar list only crops that CROPGRIDS maps in the ~28 km cell with at least 2% of its harvested area and that have a GGCMI calendar. The crop shown first is the largest one in its growing season on the selected date; if none is, the largest crop (at least 10% of area) to be sown next. Rainfed and irrigated calendars are listed separately because CROPGRIDS does not split area by water supply.</p>
       <h3>Crop season and stages</h3>
       <p>Sowing and maturity dates come from GGCMI for the 0.5° cell. The four FAO-56 stages (initial, development, mid-season, late season) take their proportions from one FAO-56 Table 11 row per crop, scaled to the local season length. The row used is shown on the page and listed in <code>public/data/crop_params.json</code>.</p>
       <h3>Crop water need</h3>
@@ -60,7 +64,7 @@
         <li>ECMWF ensemble-median rain over the next 15 days below the 20th percentile of the same dates in 1991–2020 (where those dates normally get at least 15 mm), in season or within 30 days of sowing;</li>
         <li>an El Niño or La Niña under way, developing or forecast: what past seasons of that phase did here. The page calls the tendency dry (or wet) only when at least five such seasons exist, their median is below (above) normal, and the difference from neutral seasons is significant or at least 60% of them went the same way; otherwise it says there is no consistent effect. A heat note is added when those seasons were at least 0.3 °C warmer than the trend with p &lt; 0.05.</li>
       </ul>
-      <p>No guidance is given for past dates.</p>
+      <p>No guidance is given for past dates. Guidance can be read in English, Nepali, Hindi, Bengali, Kiswahili, French, Spanish and Portuguese; the default follows the country of the selected place. The translations have not yet been reviewed by native-speaking agronomists.</p>
     </section>
 
     <section class="block">

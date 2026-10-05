@@ -151,9 +151,23 @@ def handler(route):
     elif "seasonal-api.open-meteo.com" in u.netloc:
         body = seasonal_payload()
     elif "nominatim.openstreetmap.org" in u.netloc:
-        body = {"address": {"town": "Mazabuka", "state": "Southern Province", "country": "Zambia"}} if "reverse" in u.path \
+        body = {"address": {"town": "Mazabuka", "state": "Southern Province", "country": "Zambia", "country_code": "zm"}} if "reverse" in u.path \
             else [{"display_name": "Mazabuka, Southern Province, Zambia", "lat": "-15.86", "lon": "27.76"}]
-    elif any(h in u.netloc for h in ("tile.openstreetmap.org", "basemaps.cartocdn.com", "arcgisonline.com", "fonts.googleapis.com", "fonts.gstatic.com")):
+    elif "modis.ornl.gov" in u.netloc:
+        a = qs["startDate"][0]; b = qs["endDate"][0]
+        d0 = date(int(a[1:5]), 1, 1) + timedelta(days=int(a[5:]) - 1)
+        d1 = date(int(b[1:5]), 1, 1) + timedelta(days=int(b[5:]) - 1)
+        out = []
+        d = date(d0.year, 1, 1)
+        while d <= d1:
+            if d >= d0 and d <= min(d1, date.today() - timedelta(days=20)):
+                doy = d.timetuple().tm_yday
+                val = 6000 + 2500 * math.cos(2 * math.pi * (doy - 40) / 365) if "NDVI" in qs["band"][0] else (0 if doy % 3 else 3)
+                out.append({"calendar_date": d.isoformat(), "modis_date": f"A{d.year}{doy:03d}", "data": [round(val)]})
+            d += timedelta(days=16)
+            if d.year != (d - timedelta(days=16)).year: d = date(d.year, 1, 1)
+        body = {"subset": out}
+    elif any(h in u.netloc for h in ("gibs.earthdata.nasa.gov", "tile.openstreetmap.org", "basemaps.cartocdn.com", "arcgisonline.com", "fonts.googleapis.com", "fonts.gstatic.com")):
         return route.fulfill(status=204, body="")
     elif u.path.endswith("/data/enso.json"):
         body = enso_fixture()
