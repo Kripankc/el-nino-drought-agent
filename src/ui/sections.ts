@@ -15,6 +15,10 @@ import { Sec, chart, el, fmt, more, note, resetCharts, section, tabs } from "./d
 import { beeswarm, ensoArea, keys, monthBars, r1, sparkline, tableView, theme, timeChart } from "./charts";
 import { CalRow, cropCalendar, forecastList, metric, needBars, outlookStrip, pctBar, pctStatus, seasonLine, statusTag } from "./visuals";
 import type { State } from "../main";
+import { MIN_SHARE } from "../calc/crops";
+import { ndviSeries } from "../api/ndvi";
+import { countryCode } from "../api/geocode";
+import { LANGS, Lang, UI, langForCountry, localize } from "../i18n/advice";
 import { ComingView, forecastVsNormal, impactSkeleton, renderComing, renderImpact } from "./impact";
 
 export interface RenderCtx {
@@ -30,6 +34,7 @@ export interface RenderCtx {
   grid: GridInfo;
   fields: HTMLElement;           // crop and comparison selects (owned by main.ts)
   details: HTMLElement;          // right-hand area below the map: tabs with charts
+  pickCrop: (key: string) => void;
   alive: () => boolean;
   setStatus: (m: string | null, err?: boolean) => void;
 }
@@ -62,6 +67,11 @@ export async function renderReport(c: RenderCtx) {
       el("span", {}, `${Math.round(c.grid.elevation).toLocaleString("en")} m`),
       el("span", {}, current ? `Observed to ${fmtDay(last)}` : `As of ${fmtDay(D)}`)),
     c.fields);
+
+  // Crop calendar of the place (left panel); click a row to switch crop
+  const calBox = el("div", { class: "ix" });
+  root.append(calBox);
+  renderCrops(section(calBox, "Crop calendar here"), c, D);
 
   // Season to analyse
   let season: Season | null = null;
@@ -137,8 +147,6 @@ export async function renderReport(c: RenderCtx) {
   const tEnso = panels[panels.length - 1];
 
   // Season tab
-  const crops = section(tSeason, "Crops grown here");
-  renderCrops(crops, c, asOf);
 
   const range: [Day, Day] = season ? [season.plant, Math.min(season.harvest, asOf)] : [asOf - 120, asOf];
   let rainPct: number | null = null;
@@ -160,6 +168,13 @@ export async function renderReport(c: RenderCtx) {
     const recent = recentRain(obs, c.clim, asOf, 90);
     const st = pctStatus(recent.pct);
     mRain.replaceWith(metric({ label: "Rain, last 90 days", value: `${Math.round(recent.total)}`, unit: "mm", ctx: recent.normal != null ? `normal ${fmt.mm(recent.normal)}` : undefined, viz: recent.pct != null ? pctBar(recent.pct, 190) : null, status: statusTag(st.s, st.word) }));
+  }
+
+  // Satellite greenness at the point: this season against the three before
+  {
+    const nsec = section(tSeason, "Crop greenness from satellite (NDVI)");
+    const win: [Day, Day] = season && c.cal ? [season.plant - 16, Math.min(season.harvest + 16, current ? today : D + 30)] : [D - 200, current ? today : D + 30];
+    renderNdvi(nsec, c, win, current ? today : D);
   }
 
   const heat = renderTemp(section(tSeason, "Heat"), c, obs, range, p, season, cmp, cropLabel);
@@ -206,20 +221,29 @@ export async function renderReport(c: RenderCtx) {
   let impact: PhaseImpact | null = null;
   let impactLoading = !!est;
   const renderComingNow = () => { if (current) renderComing(comingBox, { fc, fc15, heatC: p?.heat_c ?? null, seasonal: seas, impact, state: est, enso: c.enso }); };
+  let lang: Lang = storedLang() ?? "en";
+  if (!storedLang()) countryCode(c.state.lat!, c.state.lon!).then((cc) => {
+    const l = langForCountry(cc);
+    if (c.alive() && l !== lang && !storedLang()) { lang = l; renderRecs(); }
+  });
   const renderRecs = () => {
     if (!current) return;
-    recs.replaceChildren(el("div", { class: "recs-h" }, el("h2", {}, "What to do")));
-    if (!c.cal || !season) { recs.append(note("Guidance needs a crop calendar, which is not available here.")); return; }
+    const ui = UI[lang];
+    const sel = el("select", { class: "lang", "aria-label": ui.lang }, ...LANGS.map((l) => el("option", { value: l.id }, l.name)));
+    sel.value = lang;
+    sel.addEventListener("change", () => { lang = sel.value as Lang; storeLang(lang); renderRecs(); });
+    recs.replaceChildren(el("div", { class: "recs-h" }, el("h2", { lang }, ui.whatToDo), sel));
+    if (!c.cal || !season) { recs.append(note(ui.noCal)); return; }
     const target = inSeason ? season : nextSeason!;
     const items = buildAdvice({
-      cropLabel, season: target, inSeason, today,
+      season: target, inSeason, today,
       plan: p?.stages ? stagePlan(p.stages, target.length) : null,
       heatC: p?.heat_c ?? null, heatRef: p?.heat_ref ?? null,
       rainPercentile: inSeason ? rainPct : null, gapMm: inSeason ? gapMm : null,
       smPercentile: smPct.pct, forecast: fc, seasonal: seas, fc15,
       enso: est ? { ...est, impact, loading: impactLoading } : null, references: c.params.references,
     });
-    renderAdvice(recs, items);
+    renderAdvice(recs, items, lang);
   };
 
   // Per-season history 1950 to today, loaded once and shared by the impact block
@@ -300,6 +324,42 @@ function renderRecent(box: HTMLElement, days: { day: Day; precip: number }[], cl
     el("p", { class: "caption" }, "ECMWF IFS short-range forecasts via Open-Meteo, not observations. These days are not yet in ERA5, so they are not included in the season totals above."));
 }
 
+function renderNdvi(s: Sec, c: RenderCtx, win: [Day, Day], until: Day) {
+  const T = theme();
+  s.body.append(el("div", { class: "sk", style: "height:160px" }));
+  s.about("NDVI (Normalized Difference Vegetation Index) measures how green and dense the plants are, from 0 (bare soil) to about 0.9 (dense green crop or forest). Values are for the single 250 m MODIS pixel at the marker, from 16-day composites; cloudy composites are left out. A pixel can include trees, houses or several fields, so compare the shape of the curves more than the exact values.",
+    el("p", { class: "caption" }, "MODIS MOD13Q1 v061 (Didan 2021, NASA LP DAAC) via the ORNL DAAC MODIS Web Service"));
+  const years = [0, 1, 2, 3];
+  const shift = (d: Day, k: number) => shiftYearsLocal(d, -k);
+  Promise.all(years.map((k) => ndviSeries(c.state.lat!, c.state.lon!, shift(win[0], k), Math.min(shift(win[1], k), until)))).then((series) => {
+    if (!c.alive()) return;
+    s.body.replaceChildren();
+    if (!series[0].length) { s.body.append(note("No cloud-free satellite images for this period yet.")); return; }
+    const y0 = ymd(win[0]).y;
+    const lines = series.map((pts, k) => ({
+      label: k === 0 ? "This season" : `${y0 - k} season`,
+      color: k === 0 ? T.sprout : T.band,
+      width: k === 0 ? 2.4 : 1.2,
+      points: pts.map((p) => ({ day: shift(p.day, -k), y: Math.round(p.ndvi * 100) / 100 })),
+    })).reverse();
+    const latest = series[0][series[0].length - 1];
+    const prev = series.slice(1).map((pts) => pts.filter((p) => Math.abs(shift(p.day, -series.indexOf(pts)) - latest.day) <= 12).map((p) => p.ndvi)).flat();
+    s.body.append(el("div", { class: "lede" },
+      el("div", {}, el("span", { class: "lede-v" }, latest.ndvi.toFixed(2)), el("span", { class: "lede-l" }, `on ${fmtDay(latest.day)}${prev.length ? ` · previous years ${Math.min(...prev).toFixed(2)}–${Math.max(...prev).toFixed(2)}` : ""}`))));
+    s.body.append(keys([{ label: "This season", color: T.sprout, kind: "line" }, { label: "Previous three seasons", color: T.band, kind: "line" }]));
+    chart(s.body, (w) => timeChart({ width: w, height: 190, unit: "NDVI", lines }));
+  }).catch((err) => {
+    if (!c.alive()) return;
+    s.body.replaceChildren(note(`Satellite greenness unavailable: ${(err as Error).message}`, "note error"));
+  });
+}
+
+function shiftYearsLocal(d: Day, dy: number): Day {
+  const { y, m, d: dd } = ymd(d);
+  const yy = y + dy;
+  return Math.round(Date.UTC(yy, m - 1, Math.min(dd, new Date(Date.UTC(yy, m, 0)).getUTCDate())) / 86_400_000);
+}
+
 interface History { all: Daily; lastY: number; comp: Composite | null }
 
 /** Crop calendar for the history, or six months from the selected month without one. */
@@ -360,7 +420,7 @@ function renderCrops(s: Sec, c: RenderCtx, asOf: Day) {
   if (L.totalHa < MIN_CROPLAND_HA) { s.body.append(note("No cropland recorded in this cell. Weather sections still apply.")); return; }
   const rows: CalRow[] = [];
   const noCal: string[] = [];
-  for (const cr of L.crops) {
+  for (const cr of L.crops.filter((x) => x.share >= MIN_SHARE)) {
     const ks = cr.ggcmi.flatMap((g) => ["rf", "ir"].map((x) => `${g}_${x}`)).filter((k) => L.calendars[k]);
     if (!ks.length) { if (cr.share >= 0.02) noCal.push(`${cropName(cr.name)} ${Math.round(cr.share * 100)}%`); continue; }
     const codes = [...new Set(ks.map((k) => k.slice(0, 3)))];
@@ -369,11 +429,13 @@ function renderCrops(s: Sec, c: RenderCtx, asOf: Day) {
       share: gi === 0 ? cr.share : null,
       windows: ks.filter((k) => k.startsWith(g)).map((k) => ({ plant: L.calendars[k][0], mature: L.calendars[k][1], irrigated: k.endsWith("_ir") })),
       selected: c.cropKey?.startsWith(g) ?? false,
+      key: ks.find((k) => k.startsWith(g) && k.endsWith("_rf")) ?? ks.find((k) => k.startsWith(g)),
     }));
   }
   const T = theme();
   s.body.append(keys([{ label: "Rainfed", color: T.sprout, kind: "band" }, { label: "Irrigated", color: T.irrig, kind: "band" }]));
-  chart(s.body, (w) => cropCalendar(rows, dayOfYear(asOf), w));
+  chart(s.body, (w) => cropCalendar(rows, dayOfYear(asOf), w, c.pickCrop));
+  s.body.append(el("p", { class: "caption" }, `% = share of harvested area. The line marks ${fmtDay(asOf)}. Click a crop to show it.`));
   if (noCal.length) s.body.append(el("p", { class: "caption" }, `Also grown (no calendar): ${noCal.join(" · ")}`));
 }
 
@@ -663,17 +725,28 @@ function renderComposite(s: Sec, comp: Composite, highlight: number[]) {
 }
 
 // =====================================================================
-function renderAdvice(b: HTMLElement, items: Advice[]) {
-  if (!items.length) { b.append(el("div", { class: "recs-ok" }, "Nothing unusual right now. Continue normal practice.")); return; }
+function renderAdvice(b: HTMLElement, items: Advice[], lang: Lang) {
+  const ui = UI[lang];
+  if (!items.length) { b.append(el("div", { class: "recs-ok" }, ui.nothing)); return; }
   for (const a of items) {
-    const why = el("div", { class: "rec-why", hidden: "" }, el("p", {}, a.trigger), el("p", {}, `Source: ${a.source}`));
-    const btn = el("button", { class: "linkbtn", type: "button", "aria-expanded": "false" }, "Why?");
+    const txt = localize(a, lang);
+    const why = el("div", { class: "rec-why", hidden: "" }, el("p", {}, txt.trigger), a.source ? el("p", {}, `${ui.source}: ${a.source}`) : null);
+    const btn = el("button", { class: "linkbtn", type: "button", "aria-expanded": "false" }, ui.why);
     btn.addEventListener("click", () => {
       const open = btn.getAttribute("aria-expanded") === "true";
       btn.setAttribute("aria-expanded", String(!open));
       why.hidden = open;
-      btn.textContent = open ? "Why?" : "Hide";
+      btn.textContent = open ? ui.why : ui.hide;
     });
-    b.append(el("div", { class: "rec" }, el("div", { class: "rec-t" }, a.title), el("div", { class: "rec-a" }, a.action), btn, why));
+    b.append(el("div", { class: "rec", lang }, el("div", { class: "rec-t" }, txt.title), el("div", { class: "rec-a" }, txt.action), btn, why));
   }
+  if (lang !== "en") b.append(el("p", { class: "caption" }, "Translation not yet reviewed by a native-speaking agronomist. Sources are given in English."));
 }
+
+// Language for "What to do": the reader's choice if they made one, else the
+// main language of the country.
+const LANG_KEY = "ensowatch.lang";
+function storedLang(): Lang | null {
+  try { const v = localStorage.getItem(LANG_KEY); return LANGS.some((l) => l.id === v) ? (v as Lang) : null; } catch { return null; }
+}
+function storeLang(l: Lang) { try { localStorage.setItem(LANG_KEY, l); } catch { /* private mode */ } }
