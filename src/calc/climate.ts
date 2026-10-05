@@ -214,17 +214,19 @@ export interface MonthStat { y: number; m: number; rain: number; normal: number;
 /** Monthly rainfall for the months fully inside [from, to], vs the 1991-2020 mean for that month. */
 export function monthlyVsNormal(obs: Daily, clim: Daily, from: Day, to: Day): MonthStat[] {
   const norm = new Map<number, number[]>();
-  const tot = new Map<string, number>();
+  const tot = new Map<string, { s: number; n: number; y: number; m: number }>();
   clim.day.forEach((day, i) => {
     const { y, m } = ymd(day);
     const p = clim.precip[i];
     if (y < CLIM_START || y > CLIM_END || p == null) return;
-    tot.set(`${y}-${m}`, (tot.get(`${y}-${m}`) ?? 0) + p);
+    const r = tot.get(`${y}-${m}`) ?? { s: 0, n: 0, y, m };
+    r.s += p; r.n++;
+    tot.set(`${y}-${m}`, r);
   });
-  for (const [k, v] of tot) {
-    const m = Number(k.split("-")[1]);
-    if (!norm.has(m)) norm.set(m, []);
-    norm.get(m)!.push(v);
+  for (const r of tot.values()) {
+    if (r.n < daysInMonth(r.y, r.m)) continue; // only complete months count towards the normal
+    if (!norm.has(r.m)) norm.set(r.m, []);
+    norm.get(r.m)!.push(r.s);
   }
   const months = new Map<string, { y: number; m: number; sum: number; n: number }>();
   obs.day.forEach((day, i) => {

@@ -124,10 +124,21 @@ CROP_TILE = {"a": {"295_830": [21000.0, [[0, 12000.0], [1, 4000.0], [2, 3000.0],
              "c": {"147_415": {"mai_rf": [320, 120], "soy_rf": [330, 100], "wwh_ir": [130, 260]}}}
 
 
+WEIGHT = {"total": 0.0, "n": 0}
+
+
 def handler(route):
     url = route.request.url
     u = urlparse(url)
     qs = parse_qs(u.query)
+    if "open-meteo.com" in u.netloc:
+        nv = sum(len(qs.get(k, [""])[0].split(",")) for k in ("daily", "monthly") if k in qs)
+        if "start_date" in qs:
+            days = (date.fromisoformat(qs["end_date"][0]) - date.fromisoformat(qs["start_date"][0])).days + 1
+        else:
+            days = int(qs.get("forecast_days", ["14"])[0]) if "forecast_days" in qs else 183
+        WEIGHT["total"] += max(1, days / 14 * nv / 10)
+        WEIGHT["n"] += 1
     body = None
     if "archive-api.open-meteo.com" in u.netloc:
         body = daily_payload(qs)
@@ -188,7 +199,7 @@ def main():
                         btn = pg.get_by_text("Compare 75 years of seasons")
                         if btn.count():
                             btn.click()
-                            pg.wait_for_function("!document.body.innerText.includes('Compare 75 years')", timeout=60000)
+                            pg.wait_for_function("!document.querySelector('.cta')", timeout=90000)
                             pg.wait_for_timeout(500)
                         pg.screenshot(path=f"{OUT}/{name}-enso.png", full_page=True)
                     for label in ("15 days", "Outlook", "Afterwards"):
@@ -200,7 +211,8 @@ def main():
                 else:
                     pg.wait_for_timeout(800)
                     pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
-                print(name, "status:", pg.inner_text("#status") or "(hidden)")
+                print(name, "status:", pg.inner_text("#status") or "(hidden)", f"| Open-Meteo weight {WEIGHT['total']:.0f} in {WEIGHT['n']} requests")
+                WEIGHT["total"] = 0.0; WEIGHT["n"] = 0
                 ctx.close()
             b.close()
     finally:
