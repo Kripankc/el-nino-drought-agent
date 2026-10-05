@@ -4,7 +4,7 @@ import L from "leaflet";
 import { Day, fromDay, toDay, todayDay } from "./lib/dates";
 import { searchPlace, reversePlace } from "./api/geocode";
 import { cropsAt, loadCropParams, loadEnso, LocalCrops, CropParamFile } from "./api/static";
-import { era5Daily, era5Windows, lastEra5Day, mergeDaily } from "./api/openmeteo";
+import { QuotaError, era5Daily, era5Windows, lastEra5Day, mergeDaily } from "./api/openmeteo";
 import { planClimatology } from "./calc/windows";
 import { Calendar, seasonForYear } from "./calc/season";
 import { CropChoice, cropChoices } from "./calc/crops";
@@ -337,7 +337,7 @@ async function load() {
     });
   } catch (err) {
     console.error(err);
-    if (alive()) setStatus(`Could not load data: ${(err as Error).message}`, true);
+    if (alive()) setStatus(err instanceof QuotaError ? err.message : `Could not load data: ${(err as Error).message}`, true);
   } finally {
     if (alive()) { report.classList.remove("loading"); details.classList.remove("loading"); }
   }
