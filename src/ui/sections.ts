@@ -28,6 +28,7 @@ export interface RenderCtx {
   clim: Daily;
   grid: GridInfo;
   fields: HTMLElement;           // crop and comparison selects (owned by main.ts)
+  details: HTMLElement;          // right-hand area below the map: tabs with charts
   alive: () => boolean;
   setStatus: (m: string | null, err?: boolean) => void;
 }
@@ -40,6 +41,7 @@ export async function renderReport(c: RenderCtx) {
   resetCharts();
   const root = c.root;
   root.replaceChildren();
+  c.details.replaceChildren();
   const today = todayDay();
   const last = lastEra5Day();
   const D = Math.min(c.state.date, today);
@@ -117,7 +119,7 @@ export async function renderReport(c: RenderCtx) {
 
   // ---------------------------------------------------------------- tabs
   const labels = current ? ["Season", "15 days", "Outlook", "El Niño"] : ["Season", "Afterwards", "El Niño"];
-  const panels = tabs(root, labels);
+  const panels = tabs(c.details, labels);
   const [tSeason, tNext, tOutlook] = panels;
   const tEnso = panels[panels.length - 1];
 
@@ -206,7 +208,7 @@ export async function renderReport(c: RenderCtx) {
   renderRecs(null);
 
   // Footer
-  root.append(el("div", { class: "panel-foot" },
+  c.details.append(el("div", { class: "panel-foot" },
     el("p", {}, "Weather: ERA5, ECMWF IFS and SEAS5 via Open-Meteo. ENSO: NOAA CPC. Crops: CROPGRIDS, GGCMI. Water: FAO-56. ",
       el("a", { href: "methods.html" }, "Methods and sources")),
     more("Limits", el("ul", {}, ...S.limits.map((t) => el("li", {}, t))))));
