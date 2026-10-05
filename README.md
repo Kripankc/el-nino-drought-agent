@@ -1,17 +1,22 @@
 # ENSOwatch
 
+**Open the app: [kripankc.github.io/el-nino-drought-agent](https://kripankc.github.io/el-nino-drought-agent/)**
+
+Free, no sign-up, works on phone and desktop. Example: [Chitwan, Nepal](https://kripankc.github.io/el-nino-drought-agent/?lat=27.62&lon=84.43).
+
 A static web tool for farmers and extension officers. Search a place or click the map to see:
 
-- which crops are grown there, and when they are sown and harvested;
+- which crops are grown there, their sowing and harvest calendar, and the crop in season on the selected date;
 - this season's rainfall, compared with the crop's water need and the 1991–2020 normal range;
 - temperature, humidity, reference evapotranspiration and soil moisture, each with its normal range;
+- crop greenness (MODIS NDVI) at the point, and NDVI, rain and soil-moisture layers on the satellite map;
 - a 15-day ensemble forecast and a 7-month seasonal outlook;
-- what happened at that place in past El Niño and La Niña seasons, with a significance test;
-- rule-based guidance. Each item shows the data that triggered it and a source.
+- when an El Niño or La Niña is under way or forecast, how past seasons of that phase went at that place, with a significance test;
+- rule-based guidance in English, Nepali, Hindi, Bengali, Kiswahili, French, Spanish and Portuguese. Each item shows the data that triggered it and a source.
 
 Pick a past date to see the season around it and what followed. Pick a comparison season, such as the last El Niño, to overlay it. The URL stores location, date, crop and comparison, so a view can be shared as a link.
 
-Methods, sources and limitations are on the site's [methods page](methods.html).
+Methods, sources and limitations are on the site's [methods page](https://kripankc.github.io/el-nino-drought-agent/methods.html).
 
 ## Data
 
@@ -20,6 +25,9 @@ Methods, sources and limitations are on the site's [methods page](methods.html).
 | Daily weather 1950–present | ERA5 (`models=era5`), Open-Meteo Historical API | Browser, cached in IndexedDB |
 | 15-day forecast | ECMWF IFS 0.25° ensemble, Open-Meteo Ensemble API | Browser |
 | 7-month outlook | ECMWF SEAS5, Open-Meteo Seasonal API | Browser |
+| Days not yet in ERA5 (preliminary) | ECMWF IFS 0.25° short-range forecasts, Open-Meteo Forecast API | Browser |
+| NDVI at the point | MODIS MOD13Q1 v061 (Didan 2021), ORNL DAAC MODIS Web Service | Browser, cached in IndexedDB |
+| Map data layers | NASA GIBS: MODIS NDVI, GPM IMERG, SMAP L4 | Browser (map tiles) |
 | ENSO index and episodes | NOAA CPC RONI (ONI as a fallback) | `pipeline/enso.py`, daily GitHub Action |
 | Crop harvested area | CROPGRIDS v1.08 (Tang et al. 2024) | `pipeline/crops.py`, manual GitHub Action |
 | Crop calendars | GGCMI Phase 3 (Jägermeyr et al. 2021) | `pipeline/crops.py` |
