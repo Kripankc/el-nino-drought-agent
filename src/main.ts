@@ -4,7 +4,8 @@ import L from "leaflet";
 import { Day, fromDay, toDay, todayDay } from "./lib/dates";
 import { searchPlace, reversePlace } from "./api/geocode";
 import { cropsAt, loadCropParams, loadEnso, LocalCrops, CropParamFile } from "./api/static";
-import { era5Daily, lastEra5Day } from "./api/openmeteo";
+import { era5Daily, era5Windows, lastEra5Day, mergeDaily } from "./api/openmeteo";
+import { planClimatology } from "./calc/windows";
 import { Calendar, seasonForYear } from "./calc/season";
 import { EnsoData, episodeMonths, seasonPhase } from "./calc/enso";
 import { S } from "./strings";
@@ -255,12 +256,23 @@ async function load() {
     state.crop = cropKey;
     writeUrl();
 
+    const cal: Calendar | null = cropKey ? { plantDoy: localCrops.calendars[cropKey][0], maturityDoy: localCrops.calendars[cropKey][1] } : null;
+
+    // 1991-2020 normals: only the windows this view needs (see calc/windows.ts)
     setStatus(S.status.clim);
-    const clim = await era5Daily(lat, lon, toDay("1991-01-01"), toDay("2020-12-31"),
-      ["precip", "tmax", "et0", "rh", "sm"], (m) => { if (alive()) setStatus(m); });
+    const today = todayDay();
+    const D = Math.min(state.date, today);
+    const past = D < today - 7;
+    const plan = planClimatology(cal, past ? D : lastEra5Day(), past);
+    const st = (m: string) => { if (alive()) setStatus(m); };
+    const [grid, rainHeat, soilAir] = await Promise.all([
+      era5Daily(lat, lon, lastEra5Day() - 1, lastEra5Day(), ["precip"], st).then((r) => r.grid),
+      era5Windows(lat, lon, plan.rainHeat, ["precip", "tmax"], st),
+      era5Windows(lat, lon, plan.soilAir, ["et0", "rh", "sm"], st),
+    ]);
+    const clim = { data: mergeDaily([rainHeat, soilAir]), grid };
     if (!alive()) return;
 
-    const cal: Calendar | null = cropKey ? { plantDoy: localCrops.calendars[cropKey][0], maturityDoy: localCrops.calendars[cropKey][1] } : null;
     if (cal) fillCmpMenu(cal, enso);
     else { cmpSel.replaceChildren(el("option", { value: "" }, "None")); cmpSel.disabled = true; }
 

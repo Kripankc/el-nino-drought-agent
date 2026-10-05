@@ -1,6 +1,6 @@
 import { Day, dayOfYear, fmtDay, fromDay, monthName, toDate, toDay, todayDay, ymd } from "../lib/dates";
 import { CropParamFile, LocalCrops } from "../api/static";
-import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, ensembleForecast, lastEra5Day, mergeDaily, seasonalMonthly } from "../api/openmeteo";
+import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, era5Windows, ensembleForecast, lastEra5Day, seasonalMonthly } from "../api/openmeteo";
 import {
   Band, Daily, cumulative, cumulativeRainBand, doyBands, doyPercentile, hotDayCounts, indexOf,
   monthlyVsNormal, seasonTotals, waterBalance,
@@ -376,7 +376,7 @@ function renderTemp(s: Sec, c: RenderCtx, obs: Daily, range: [Day, Day], p: Crop
 // =====================================================================
 function renderSoilAir(s: Sec, c: RenderCtx, obs: Daily, range: [Day, Day], asOf: Day) {
   const T = theme();
-  const at = Math.min(asOf, range[1]);
+  const at = asOf;
   const ix = indexOf(obs);
   const vars: { v: "sm" | "rh" | "et0"; label: string; unit: string; scale: number; lo: string; hi: string; dp: number }[] = [
     { v: "sm", label: "Soil moisture, top 1 m", unit: "% vol", scale: 100, lo: "Dry", hi: "Wet", dp: 0 },
@@ -526,18 +526,17 @@ function renderEnso(tab: HTMLElement, c: RenderCtx, D: Day, current: boolean, se
   h.about("Uses NOAA's official El Niño and La Niña episodes. A season counts as El Niño or La Niña when more than half of it falls in an episode. Past seasons are not a forecast: every El Niño is different.", el("p", { class: "caption" }, "ERA5 via Open-Meteo · NOAA CPC"));
   btn.addEventListener("click", async () => {
     btn.disabled = true;
-    btn.textContent = "Loading…";
+    btn.textContent = "Loading 75 seasons…";
     try {
       c.setStatus(S.status.enso);
-      const [a1, a2] = await Promise.all([
-        era5Daily(c.state.lat!, c.state.lon!, toDay("1950-01-01"), toDay("1990-12-31"), ["precip", "tmax"], (msg) => c.setStatus(msg)),
-        era5Daily(c.state.lat!, c.state.lon!, toDay("2021-01-01"), lastEra5Day(), ["precip", "tmax"], (msg) => c.setStatus(msg)),
-      ]);
-      if (!c.alive()) return;
-      const all = mergeDaily([a1.data, c.clim, a2.data]);
       const seasonFor = (yy: number) => seasonForYear(cal, yy);
       let lastY = ymd(lastEra5Day()).y;
       while (seasonFor(lastY).harvest > lastEra5Day()) lastY--;
+      // One short request per season (1950 to last complete season), not 75 full years
+      const ws: [Day, Day][] = [];
+      for (let yy = 1950; yy <= lastY; yy++) { const ss = seasonFor(yy); ws.push([ss.plant, ss.harvest]); }
+      const all = await era5Windows(c.state.lat!, c.state.lon!, ws, ["precip", "tmax"], (msg) => c.setStatus(msg));
+      if (!c.alive()) return;
       const comp = composite(seasonTotals(all, seasonFor, 1950, lastY), seasonFor, e);
       btn.remove();
       c.setStatus(null);
