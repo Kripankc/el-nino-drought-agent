@@ -58,6 +58,29 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
+/** Mid-ranks (1-based) of the pooled sample, ties share their average rank. */
+export function ranks(xs: number[]): number[] {
+  const idx = xs.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0]);
+  const r = new Array<number>(xs.length);
+  for (let i = 0; i < idx.length; ) {
+    let j = i;
+    while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    for (let k = i; k <= j; k++) r[idx[k][1]] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  return r;
+}
+
+/**
+ * Rank-based (Wilcoxon-Mann-Whitney) two-sided permutation test: the
+ * permutation test applied to the pooled ranks, so single extreme seasons
+ * cannot dominate the result.
+ */
+export function rankPermutationTest(a: number[], b: number[], n = 10_000, seed = 42): number {
+  const r = ranks([...a, ...b]);
+  return permutationTest(r.slice(0, a.length), r.slice(a.length), n, seed);
+}
+
 /**
  * Two-sided permutation test for a difference in means between groups a and b.
  * Returns the p-value with the +1 correction (Phipson & Smyth 2010).

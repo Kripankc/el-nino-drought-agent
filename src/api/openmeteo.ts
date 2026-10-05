@@ -34,17 +34,50 @@ export function snap(x: number): number {
 
 interface CacheEntry { t: number; v: unknown }
 
+// ---------------------------------------------------------------- rate budget
+// Open-Meteo's free tier allows 600 weighted calls per minute per visitor. A call
+// weighs max(1, days/14 x variables/10) per location (open-meteo/open-meteo,
+// ForecastApiResult.calculateQueryWeight). We keep our own running total and
+// wait before a request that would exceed the budget, instead of hitting 429.
+const BUDGET_PER_MIN = 540;
+const spent: { t: number; w: number }[] = [];
+
+export function requestWeight(url: string): number {
+  const u = new URL(url);
+  const p = u.searchParams;
+  const vars = ["daily", "hourly", "monthly", "weekly"].reduce((n, k) => n + (p.get(k)?.split(",").filter(Boolean).length ?? 0), 0);
+  let days = 14;
+  const a = p.get("start_date");
+  const b = p.get("end_date");
+  if (a && b) days = toDay(b) - toDay(a) + 1;
+  else if (p.get("forecast_days")) days = Number(p.get("forecast_days"));
+  const locations = (p.get("latitude") ?? "").split(",").length;
+  return locations * Math.max(1, (days / 14) * (vars / 10));
+}
+
+async function reserve(w: number, status?: Status) {
+  for (;;) {
+    const now = Date.now();
+    while (spent.length && now - spent[0].t > 61_000) spent.shift();
+    const used = spent.reduce((a, x) => a + x.w, 0);
+    if (used + w <= BUDGET_PER_MIN || !spent.length) { spent.push({ t: now, w }); return; }
+    const wait = 61_000 - (now - spent[0].t);
+    status?.(`Pacing requests to the free weather service (${Math.ceil(wait / 1000)} s)…`);
+    await new Promise((res) => setTimeout(res, Math.min(wait, 5_000)));
+  }
+}
+
 async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<any> {
   try {
     const hit = (await idbGet(url)) as CacheEntry | undefined;
     if (hit && Date.now() - hit.t < ttlMs) return hit.v;
   } catch { /* storage unavailable: fetch instead */ }
   for (let attempt = 0; attempt < 3; attempt++) {
+    await reserve(requestWeight(url), status);
     const r = await fetch(url);
     if (r.status === 429) {
-      // Free tier: 600 calls/min, 5,000/hour, 10,000/day (weighted by days x variables).
-      status?.(`Open-Meteo rate limit reached; retrying in 65 s (attempt ${attempt + 1} of 3)`);
-      await new Promise((res) => setTimeout(res, 65_000));
+      status?.(`The free weather service is busy. Retrying in 60 s (attempt ${attempt + 1} of 3).`);
+      await new Promise((res) => setTimeout(res, 60_000));
       continue;
     }
     const body = await r.json().catch(() => null);
@@ -54,7 +87,7 @@ async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<
     try { await idbSet(url, { t: Date.now(), v: body } satisfies CacheEntry); } catch { /* ignore */ }
     return body;
   }
-  throw new ApiError("Open-Meteo rate limit: please try again in an hour.");
+  throw new ApiError("The free weather service limit is reached. Please try again in an hour.");
 }
 
 export interface GridInfo { latitude: number; longitude: number; elevation: number }
@@ -89,19 +122,53 @@ export async function era5Daily(
   };
 }
 
+const KEYS = ["precip", "tmax", "tmin", "et0", "rh", "sm"] as const;
+
+/** Merge daily series; for each day and variable the first non-null value wins. */
 export function mergeDaily(parts: Daily[]): Daily {
-  const out: Daily = { day: [], precip: [], tmax: [], tmin: [], et0: [], rh: [], sm: [] };
-  const seen = new Set<Day>();
-  const rows: [Day, number, Daily][] = [];
-  for (const p of parts) p.day.forEach((d, i) => rows.push([d, i, p]));
-  rows.sort((a, b) => a[0] - b[0]);
-  for (const [d, i, p] of rows) {
-    if (seen.has(d)) continue;
-    seen.add(d);
-    out.day.push(d);
-    (["precip", "tmax", "tmin", "et0", "rh", "sm"] as const).forEach((k) => out[k].push(p[k][i]));
+  const byDay = new Map<Day, Record<(typeof KEYS)[number], number | null>>();
+  for (const p of parts) {
+    p.day.forEach((d, i) => {
+      const r = byDay.get(d) ?? { precip: null, tmax: null, tmin: null, et0: null, rh: null, sm: null };
+      for (const k of KEYS) if (r[k] == null && p[k][i] != null) r[k] = p[k][i];
+      byDay.set(d, r);
+    });
+  }
+  const days = [...byDay.keys()].sort((a, b) => a - b);
+  const out: Daily = { day: days, precip: [], tmax: [], tmin: [], et0: [], rh: [], sm: [] };
+  for (const d of days) for (const k of KEYS) out[k].push(byDay.get(d)![k]);
+  return out;
+}
+
+/** Merge overlapping or touching [from, to] windows. */
+export function mergeWindows(ws: [Day, Day][]): [Day, Day][] {
+  const s = ws.filter(([a, b]) => b >= a).sort((x, y) => x[0] - y[0]);
+  const out: [Day, Day][] = [];
+  for (const w of s) {
+    const last = out[out.length - 1];
+    if (last && w[0] <= last[1] + 1) last[1] = Math.max(last[1], w[1]);
+    else out.push([w[0], w[1]]);
   }
   return out;
+}
+
+/**
+ * Fetch many short ERA5 windows instead of one long record. Weight is charged
+ * per request with a minimum of 1, so 30 seasonal windows cost far less than
+ * 30 full years.
+ */
+export async function era5Windows(lat: number, lon: number, windows: [Day, Day][], vars: VarKey[], status?: Status, concurrency = 6): Promise<Daily> {
+  const ws = mergeWindows(windows.map(([a, b]) => [a, Math.min(b, lastEra5Day())] as [Day, Day]));
+  const parts: Daily[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ws.length) {
+      const [a, b] = ws[next++];
+      parts.push((await era5Daily(lat, lon, a, b, vars, status)).data);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, ws.length) }, worker));
+  return mergeDaily(parts);
 }
 
 // ------------------------------------------------------------- forecasts
@@ -159,7 +226,7 @@ export async function seasonalMonthly(lat: number, lon: number, status?: Status)
       precipMm: mean,
       precipAnomMm: anom,
       tAnom: ta ? (m[ta][i] as number | null) : null,
-      precipPct: clim != null && clim > 1 && anom != null ? (100 * anom) / clim : null,
+      precipPct: clim != null && clim >= 10 && anom != null ? (100 * anom) / clim : null, // % is meaningless in near-dry months
     };
   });
 }

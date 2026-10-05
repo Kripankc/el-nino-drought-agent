@@ -1,7 +1,7 @@
 import { Day, ymd } from "../lib/dates";
 import { Season } from "./season";
 import { SeasonTotal } from "./climate";
-import { detrend, mean, median, permutationTest } from "./stats";
+import { detrend, mean, median, rankPermutationTest } from "./stats";
 
 export type Phase = "El Nino" | "La Nina" | "Neutral";
 
@@ -60,7 +60,7 @@ export interface Composite {
   points: CompositePoint[];
   normalRain: number;              // 1991-2020 mean season rainfall
   byPhase: Record<Phase, { n: number; medianRainPct: number; drierCount: number; medianTempAnom: number }>;
-  pRainNinoVsNeutral: number;      // permutation test p-value
+  pRainNinoVsNeutral: number;      // rank-based permutation test p-value
   pTempNinoVsNeutral: number;
   firstYear: number;
   lastYear: number;
@@ -69,7 +69,7 @@ export interface Composite {
 /**
  * El Nino / La Nina composites of season rainfall and temperature.
  * Rainfall: % departure from the 1991-2020 mean season total.
- * Temperature: departure from a linear trend fitted over all seasons (removes
+ * Temperature (mean daily maximum): departure from a linear trend fitted over all seasons (removes
  * the warming trend so it is not mistaken for an ENSO signal).
  */
 export function composite(totals: SeasonTotal[], seasonFor: (y: number) => Season, enso: EnsoData): Composite | null {
@@ -81,7 +81,7 @@ export function composite(totals: SeasonTotal[], seasonFor: (y: number) => Seaso
   });
   const normalRain = mean(normalSeasons.map((t) => t.rain));
   if (!(normalRain > 0)) return null;
-  const tRes = detrend(totals.map((t) => t.year), totals.map((t) => t.tmean));
+  const tRes = detrend(totals.map((t) => t.year), totals.map((t) => t.tmax));
   const points: CompositePoint[] = totals.map((t, i) => ({
     year: t.year,
     phase: seasonPhase(months, seasonFor(t.year)),
@@ -106,8 +106,8 @@ export function composite(totals: SeasonTotal[], seasonFor: (y: number) => Seaso
     points,
     normalRain,
     byPhase,
-    pRainNinoVsNeutral: permutationTest(nino.map((p) => p.rainPct), neu.map((p) => p.rainPct)),
-    pTempNinoVsNeutral: permutationTest(nino.map((p) => p.tempAnom), neu.map((p) => p.tempAnom)),
+    pRainNinoVsNeutral: rankPermutationTest(nino.map((p) => p.rainPct), neu.map((p) => p.rainPct)),
+    pTempNinoVsNeutral: rankPermutationTest(nino.map((p) => p.tempAnom), neu.map((p) => p.tempAnom)),
     firstYear: totals[0].year,
     lastYear: totals[totals.length - 1].year,
   };

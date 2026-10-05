@@ -7,11 +7,13 @@
   <meta name="description" content="Data sources, calculations and limitations behind ENSOwatch." />
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
-<body>
+<body class="doc">
   <div class="wrap">
     <header class="site">
-      <h1>Methods, data and limitations</h1>
-      <p><a href="./">Back to the map</a></p>
+      <div>
+        <h1>Methods, data and limitations</h1>
+        <p><a href="./">Back to the map</a></p>
+      </div>
     </header>
 
     <section class="block">
@@ -43,7 +45,7 @@
       <h3>Heat thresholds</h3>
       <p>Maize 29 °C, soybean 30 °C and cotton 32 °C (Schlenker &amp; Roberts 2009, PNAS 106:15594); rice 35 °C at flowering (Yoshida 1981); wheat 34 °C (Lobell et al. 2012, <i>Nature Climate Change</i> 2:186). The page counts days with daily maximum above the threshold. This is a simpler measure than the hourly exposure used by Schlenker &amp; Roberts. Other crops have no threshold shown.</p>
       <h3>ENSO episodes and local composites</h3>
-      <p>An El Niño (La Niña) episode needs at least five consecutive overlapping 3-month seasons at or above +0.5 °C (at or below −0.5 °C), following NOAA CPC. A crop season counts as El Niño or La Niña when more than half its days fall in an episode month, otherwise as neutral. Season rainfall is expressed as a percentage departure from the mean of the 1991–2020 seasons. Season temperature is the mean of (Tmax + Tmin)/2, shown as a departure from a linear trend fitted over 1950–present, so warming is not mistaken for an ENSO effect. The difference between El Niño and neutral seasons is tested with a two-sided permutation test on the difference in means (10,000 permutations, fixed seed). The page only says "El Niño seasons here were drier/wetter" when p &lt; 0.05. Where there is no crop calendar, the six months starting in the selected month are used instead.</p>
+      <p>An El Niño (La Niña) episode needs at least five consecutive overlapping 3-month seasons at or above +0.5 °C (at or below −0.5 °C), following NOAA CPC. A crop season counts as El Niño or La Niña when more than half its days fall in an episode month, otherwise as neutral. Season rainfall is expressed as a percentage departure from the mean of the 1991–2020 seasons. Season temperature is the mean daily maximum, shown as a departure from a linear trend fitted over 1950–present, so warming is not mistaken for an ENSO effect. The difference between El Niño and neutral seasons is tested with a two-sided rank-based permutation test (Wilcoxon–Mann–Whitney statistic, 10,000 permutations, fixed seed), so a single extreme season cannot dominate the result. The page only says "El Niño seasons here were drier/wetter" when p &lt; 0.05. Where there is no crop calendar, the six months starting in the selected month are used instead.</p>
       <h3>Guidance</h3>
       <p>Guidance is rule-based. Each item appears only when its data trigger is met. The page shows the trigger and the source:</p>
       <ul>
@@ -51,8 +53,8 @@
         <li>root-zone soil moisture below the 10th percentile for the time of year;</li>
         <li>ensemble-median Tmax above the crop threshold during mid-season in the next 15 days;</li>
         <li>ensemble-median rain of 75 mm or more over three days;</li>
-        <li>SEAS5 ensemble-mean rainfall at least 20% below the model normal in a month overlapping mid-season;</li>
-        <li>an El Niño run in progress where past El Niño seasons were significantly drier.</li>
+        <li>SEAS5 ensemble-mean rainfall at least 20% below the model normal in a month overlapping mid-season (during the season) or the coming season (before sowing);</li>
+        <li>an El Niño run in progress: a pointer to the local El Niño history, and once it is loaded, a note if past El Niño seasons were drier (significant, or at least 60% of them below normal with the caveat stated).</li>
       </ul>
       <p>No guidance is given for past dates.</p>
     </section>
@@ -65,7 +67,7 @@
         <li>FAO-56 ETc describes a healthy, well-watered crop. Rice paddy water use (land preparation, percolation, standing water) is higher than ETc.</li>
         <li>Seasonal forecasts are not bias-corrected and have limited skill at one location.</li>
         <li>ENSO composites describe past seasons. The number of El Niño seasons since 1950 is small, and individual events differ.</li>
-        <li>Open-Meteo's free tier is for non-commercial use and is rate-limited: 600 weighted calls per minute, 5,000 per hour and 10,000 per day, counted per visitor IP. Long daily records are heavy, so they are cached in the browser after the first load.</li>
+        <li>Open-Meteo's free tier is for non-commercial use and is rate-limited: 600 weighted calls per minute, 5,000 per hour and 10,000 per day, counted per visitor IP. To stay within it, the page downloads only the 1991–2020 date windows a view needs (each crop season, and the weeks around the selected date) rather than the full record, paces its own requests, and caches everything it has downloaded in the browser.</li>
       </ul>
     </section>
 
