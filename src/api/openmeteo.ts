@@ -67,27 +67,52 @@ async function reserve(w: number, status?: Status) {
   }
 }
 
+// Open-Meteo also refuses more than a few simultaneous requests from one
+// visitor ("Too many concurrent requests"), so every call goes through one
+// small queue.
+const MAX_IN_FLIGHT = 3;
+let inFlight = 0;
+const waiting: (() => void)[] = [];
+async function slot(): Promise<() => void> {
+  if (inFlight >= MAX_IN_FLIGHT) await new Promise<void>((res) => waiting.push(res));
+  inFlight++;
+  return () => { inFlight--; waiting.shift()?.(); };
+}
+
 async function cachedJson(url: string, ttlMs: number, status?: Status): Promise<any> {
   try {
     const hit = (await idbGet(url)) as CacheEntry | undefined;
     if (hit && Date.now() - hit.t < ttlMs) return hit.v;
   } catch { /* storage unavailable: fetch instead */ }
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     await reserve(requestWeight(url), status);
-    const r = await fetch(url);
+    const release = await slot();
+    let r: Response;
+    let body: any;
+    try {
+      r = await fetch(url);
+      body = await r.json().catch(() => null);
+    } finally {
+      release();
+    }
     if (r.status === 429) {
-      status?.(`The free weather service is busy. Retrying in 60 s (attempt ${attempt + 1} of 3).`);
+      const reason = String(body?.reason ?? "");
+      if (/concurrent/i.test(reason)) {
+        await new Promise((res) => setTimeout(res, 500 * 2 ** attempt)); // short back-off
+        continue;
+      }
+      // Minutely / hourly / daily quota: say which, and wait
+      status?.(`${reason || "The free weather service limit is reached."} Retrying in 60 s.`);
       await new Promise((res) => setTimeout(res, 60_000));
       continue;
     }
-    const body = await r.json().catch(() => null);
     if (!r.ok || body?.error) {
       throw new ApiError(`Open-Meteo: ${body?.reason ?? r.status + " " + r.statusText}`);
     }
     try { await idbSet(url, { t: Date.now(), v: body } satisfies CacheEntry); } catch { /* ignore */ }
     return body;
   }
-  throw new ApiError("The free weather service limit is reached. Please try again in an hour.");
+  throw new ApiError("The free weather service is not responding to more requests right now. Please try again in a few minutes.");
 }
 
 export interface GridInfo { latitude: number; longitude: number; elevation: number }
@@ -157,7 +182,7 @@ export function mergeWindows(ws: [Day, Day][]): [Day, Day][] {
  * per request with a minimum of 1, so 30 seasonal windows cost far less than
  * 30 full years.
  */
-export async function era5Windows(lat: number, lon: number, windows: [Day, Day][], vars: VarKey[], status?: Status, concurrency = 6): Promise<Daily> {
+export async function era5Windows(lat: number, lon: number, windows: [Day, Day][], vars: VarKey[], status?: Status, concurrency = 3): Promise<Daily> {
   const ws = mergeWindows(windows.map(([a, b]) => [a, Math.min(b, lastEra5Day())] as [Day, Day]));
   const parts: Daily[] = [];
   let next = 0;
