@@ -80,7 +80,7 @@ export interface BandPoint { day: Day; lo: number; mid: number; hi: number }
 export function timeChart(opts: {
   width: number; height?: number; unit: string;
   band?: BandPoint[]; bandLabel?: string;
-  lines: { label: string; color: string; points: SeriesPoint[]; width?: number }[];
+  lines: { label: string; color: string; points: SeriesPoint[]; width?: number; dash?: string }[];
   hline?: { y: number; label: string };
   vline?: { day: Day; label: string };
 }): SVGSVGElement | HTMLElement {
@@ -106,7 +106,7 @@ export function timeChart(opts: {
   const rows: Record<string, any>[] = [];
   for (const ln of opts.lines) {
     const pts = ln.points.filter((p) => p.y != null).map((p) => ({ date: toDate(p.day), y: p.y as number, s: ln.label }));
-    marks.push(Plot.lineY(pts, { x: "date", y: "y", stroke: ln.color, strokeWidth: ln.width ?? 2, strokeLinecap: "round", strokeLinejoin: "round" }));
+    marks.push(Plot.lineY(pts, { x: "date", y: "y", stroke: ln.color, strokeWidth: ln.width ?? 2, strokeLinecap: "round", strokeLinejoin: "round", strokeDasharray: ln.dash }));
     if (pts.length) marks.push(Plot.dot([pts[pts.length - 1]], { x: "date", y: "y", r: 3.5, fill: ln.color, stroke: t.panel, strokeWidth: 1.5 }));
     rows.push(...pts);
   }

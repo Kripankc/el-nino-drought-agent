@@ -1,12 +1,12 @@
 import { Day, dayOfYear, fmtDay, fromDay, monthName, toDate, toDay, todayDay, ymd } from "../lib/dates";
 import { CropParamFile, LocalCrops } from "../api/static";
-import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, era5Windows, ensembleForecast, lastEra5Day, seasonalMonthly } from "../api/openmeteo";
+import { EnsembleDay, GridInfo, SeasonalMonth, era5Daily, era5Windows, ensembleForecast, lastEra5Day, mergeDaily, seasonalMonthly } from "../api/openmeteo";
 import {
   Band, Daily, cumulative, cumulativeRainBand, doyBands, doyPercentile, hotDayCounts, indexOf,
-  monthlyVsNormal, seasonTotals, waterBalance,
+  CLIM_END, CLIM_START, monthlyVsNormal, sameDatesNormal, seasonTotals, waterBalance,
 } from "../calc/climate";
 import { Calendar, CropParams, Season, seasonForYear, seasonStatus, stageIndex, stagePlan, StagePlan } from "../calc/season";
-import { Composite, EnsoData, composite, indexValue } from "../calc/enso";
+import { Composite, EnsoData, PhaseImpact, composite, ensoState, indexValue, phaseImpact } from "../calc/enso";
 import { finite, median, percentileRank, quantile } from "../calc/stats";
 import { Advice, buildAdvice } from "../calc/advice";
 import { S } from "../strings";
@@ -15,6 +15,7 @@ import { Sec, chart, el, fmt, more, note, resetCharts, section, tabs } from "./d
 import { beeswarm, ensoArea, keys, monthBars, r1, sparkline, tableView, theme, timeChart } from "./charts";
 import { CalRow, cropCalendar, forecastList, metric, needBars, outlookStrip, pctBar, pctStatus, seasonLine, statusTag } from "./visuals";
 import type { State } from "../main";
+import { ComingView, forecastVsNormal, impactSkeleton, renderComing, renderImpact } from "./impact";
 
 export interface RenderCtx {
   root: HTMLElement;
@@ -100,6 +101,14 @@ export async function renderReport(c: RenderCtx) {
     items.forEach((m, i) => m.classList.toggle("last-row", i >= items.length - (items.length % 2 === 0 ? 2 : 1)));
   };
 
+  // El Nino / La Nina impact and the coming weeks: shown on their own when the
+  // date falls in (or just before) an ENSO event
+  const est = c.enso ? ensoState(c.enso, D, current) : null;
+  const impactBox = el("div", { class: "ix" });
+  if (est) { root.append(impactBox); impactSkeleton(impactBox, est, current); }
+  const comingBox = el("div", { class: "ix" });
+  if (current) root.append(comingBox);
+
   // Recommendations placeholder
   const recs = el("div", { class: "recs" });
   if (current) root.append(recs);
@@ -107,7 +116,7 @@ export async function renderReport(c: RenderCtx) {
   // ---------------------------------------------------------------- data
   c.setStatus(S.status.season);
   const from: Day = season ? Math.min(season.plant, asOf - 60) : asOf - 150;
-  const to: Day = current ? last : Math.min(last, Math.max(season?.harvest ?? D, D + 214));
+  const to: Day = current ? last : Math.min(last, Math.max(season?.harvest ?? D, D + 214, est && !inSeason && nextSeason ? nextSeason.harvest : D));
   const obs = (await era5Daily(c.state.lat!, c.state.lon!, from, to, ["precip", "tmax", "tmin", "et0", "rh", "sm"], (m) => c.setStatus(m))).data;
   if (!c.alive()) return;
   let cmp: { season: Season; data: Daily } | null = null;
@@ -172,6 +181,7 @@ export async function renderReport(c: RenderCtx) {
   // Forecasts or what happened next
   let fc: EnsembleDay[] | null = null;
   let seas: SeasonalMonth[] | null = null;
+  let fc15: ComingView["fc15"] = null;
   if (current) {
     c.setStatus(S.status.forecast);
     const [f, s] = await Promise.allSettled([ensembleForecast(c.state.lat!, c.state.lon!), seasonalMonthly(c.state.lat!, c.state.lon!)]);
@@ -182,12 +192,16 @@ export async function renderReport(c: RenderCtx) {
     const osec = section(tOutlook, "Rain outlook, next months");
     if (s.status === "fulfilled") { seas = s.value; renderOutlook(osec, seas, inSeason ? season : nextSeason, inSeason ? plan : seasonPlanFor(nextSeason, p)); }
     else osec.body.append(note(`Seasonal forecast unavailable: ${(s.reason as Error).message}`, "note error"));
+    if (fc?.length) fc15 = forecastVsNormal(fc, sameDatesNormal(c.clim, fc[0].day, fc[fc.length - 1].day, p?.heat_c ?? null), p?.heat_c ?? null);
   } else {
     renderAfter(section(tNext, "What happened next"), c, obs, D);
   }
 
   // Recommendations
-  const renderRecs = (comp: Composite | null) => {
+  let impact: PhaseImpact | null = null;
+  let impactLoading = !!est;
+  const renderComingNow = () => { if (current) renderComing(comingBox, { fc, fc15, heatC: p?.heat_c ?? null, seasonal: seas, impact, state: est, enso: c.enso }); };
+  const renderRecs = () => {
     if (!current) return;
     recs.replaceChildren(el("div", { class: "recs-h" }, el("h2", {}, "What to do")));
     if (!c.cal || !season) { recs.append(note("Guidance needs a crop calendar, which is not available here.")); return; }
@@ -197,15 +211,66 @@ export async function renderReport(c: RenderCtx) {
       plan: p?.stages ? stagePlan(p.stages, target.length) : null,
       heatC: p?.heat_c ?? null, heatRef: p?.heat_ref ?? null,
       rainPercentile: inSeason ? rainPct : null, gapMm: inSeason ? gapMm : null,
-      smPercentile: smPct.pct, forecast: fc, seasonal: seas, composite: comp,
-      ensoNow: c.enso?.run_in_progress ?? null, references: c.params.references,
+      smPercentile: smPct.pct, forecast: fc, seasonal: seas, fc15,
+      enso: est ? { ...est, impact, loading: impactLoading } : null, references: c.params.references,
     });
     renderAdvice(recs, items);
   };
 
+  // Per-season history 1950 to today, loaded once and shared by the impact block
+  // and the El Nino tab.
+  const hcal = historyCal(c, D);
+  const seasonForH = (yy: number) => seasonForYear(hcal, yy);
+  let histP: Promise<History> | null = null;
+  const loadHistory = (): Promise<History> => (histP ??= (async () => {
+    c.setStatus(S.status.enso);
+    let lastY = ymd(lastEra5Day()).y;
+    while (seasonForH(lastY).harvest > lastEra5Day()) lastY--;
+    const lo = toDay(`${CLIM_START}-01-01`);
+    const hi = toDay(`${CLIM_END}-12-31`);
+    const ws: [Day, Day][] = [];
+    for (let yy = 1950; yy <= lastY; yy++) {
+      const ss = seasonForH(yy);
+      // 1991-2020 seasons are already in the climatology when there is a crop calendar
+      if (c.cal && ss.plant >= lo && ss.harvest <= hi) continue;
+      ws.push([ss.plant, ss.harvest]);
+    }
+    const got = await era5Windows(c.state.lat!, c.state.lon!, ws, ["precip", "tmax"], (msg) => c.setStatus(msg));
+    const all = c.cal ? mergeDaily([c.clim, got]) : got;
+    c.setStatus(null);
+    return { all, lastY, comp: composite(seasonTotals(all, seasonForH, 1950, lastY), seasonForH, c.enso!) };
+  })().catch((err) => { histP = null; throw err; }));
+
   // El Nino tab
-  renderEnso(tEnso, c, D, current, season, (comp) => renderRecs(comp));
-  renderRecs(null);
+  renderEnso(tEnso, c, D, current, season, loadHistory, !!est);
+  renderComingNow();
+  renderRecs();
+
+  if (est) {
+    const focus: Season = c.cal ? (inSeason ? season! : nextSeason!) : seasonForH(ymd(D).y);
+    loadHistory().then((h) => {
+      if (!c.alive()) return;
+      impactLoading = false;
+      impact = h.comp ? phaseImpact(h.all, h.comp, seasonForH, c.enso!, est.phase, current ? null : focus.year) : null;
+      if (impact) {
+        renderImpact(impactBox, {
+          enso: c.enso!, state: est, impact, all: h.all, seasonFor: seasonForH, focus, obs, obsUntil: current ? last : Math.min(last, focus.harvest),
+          D, current, inSeason, what: historyWhat(c, hcal, D),
+        });
+      } else {
+        impactBox.replaceChildren();
+        section(impactBox, `${est.phase === "El Nino" ? "El Niño" : "La Niña"} impact here`).body.append(note("Not enough complete past seasons of this kind to compare."));
+      }
+      renderComingNow();
+      renderRecs();
+    }).catch((err) => {
+      if (!c.alive()) return;
+      impactLoading = false;
+      impactBox.replaceChildren();
+      section(impactBox, "El Niño impact here").body.append(note(`Could not load past seasons: ${(err as Error).message}`, "note error"));
+      renderRecs();
+    });
+  }
 
   // Footer
   c.details.append(el("div", { class: "panel-foot" },
@@ -213,6 +278,18 @@ export async function renderReport(c: RenderCtx) {
       el("a", { href: "methods.html" }, "Methods and sources")),
     more("Limits", el("ul", {}, ...S.limits.map((t) => el("li", {}, t))))));
   c.setStatus(null);
+}
+
+interface History { all: Daily; lastY: number; comp: Composite | null }
+
+/** Crop calendar for the history, or six months from the selected month without one. */
+function historyCal(c: RenderCtx, D: Day): Calendar {
+  if (c.cal) return c.cal;
+  const start = toDay(`2001-${String(ymd(D).m).padStart(2, "0")}-01`);
+  return { plantDoy: dayOfYear(start), maturityDoy: ((dayOfYear(start) + 182 - 1) % 365) + 1 };
+}
+function historyWhat(c: RenderCtx, cal: Calendar, D: Day): string {
+  return c.cal ? `${c.params.ggcmi_labels[c.cropKey!.slice(0, 3)].toLowerCase()} season, ${doyLabel(cal.plantDoy)} – ${doyLabel(cal.maturityDoy)}` : `six months from ${monthName(ymd(D).m)}`;
 }
 
 function seasonPlanFor(s: Season | null, p: CropParams | null): StagePlan | null {
@@ -487,7 +564,7 @@ function ensoMetric(e: EnsoData | null, D: Day, current: boolean): HTMLElement |
   });
 }
 
-function renderEnso(tab: HTMLElement, c: RenderCtx, D: Day, current: boolean, season: Season | null, onComposite: (x: Composite | null) => void) {
+function renderEnso(tab: HTMLElement, c: RenderCtx, D: Day, current: boolean, season: Season | null, loadHistory: () => Promise<History>, auto: boolean) {
   const e = c.enso;
   const s = section(tab, "El Niño and La Niña");
   if (!e) { s.body.append(note("ENSO data not available.", "note error")); return; }
@@ -518,39 +595,27 @@ function renderEnso(tab: HTMLElement, c: RenderCtx, D: Day, current: boolean, se
 
   // Local history
   const h = section(tab, "Past El Niño seasons here");
-  const cal: Calendar = c.cal ?? (() => {
-    const start = toDay(`2001-${String(m).padStart(2, "0")}-01`);
-    return { plantDoy: dayOfYear(start), maturityDoy: ((dayOfYear(start) + 182 - 1) % 365) + 1 };
-  })();
-  const what = c.cal ? `${c.params.ggcmi_labels[c.cropKey!.slice(0, 3)].toLowerCase()} season, ${doyLabel(cal.plantDoy)} – ${doyLabel(cal.maturityDoy)}` : `six months from ${monthName(m)}`;
+  const what = historyWhat(c, historyCal(c, D), D);
   const btn = el("button", { class: "cta", type: "button" }, "Compare 75 years of seasons");
   h.body.append(el("p", { class: "lede-l", style: "margin:0 0 8px" }, `Rain and heat in each ${what}, 1950 to today`), btn);
   h.about("Uses NOAA's official El Niño and La Niña episodes. A season counts as El Niño or La Niña when more than half of it falls in an episode. Past seasons are not a forecast: every El Niño is different.", el("p", { class: "caption" }, "ERA5 via Open-Meteo · NOAA CPC"));
-  btn.addEventListener("click", async () => {
+  const run = async () => {
     btn.disabled = true;
     btn.textContent = "Loading 75 seasons…";
     try {
-      c.setStatus(S.status.enso);
-      const seasonFor = (yy: number) => seasonForYear(cal, yy);
-      let lastY = ymd(lastEra5Day()).y;
-      while (seasonFor(lastY).harvest > lastEra5Day()) lastY--;
-      // One short request per season (1950 to last complete season), not 75 full years
-      const ws: [Day, Day][] = [];
-      for (let yy = 1950; yy <= lastY; yy++) { const ss = seasonFor(yy); ws.push([ss.plant, ss.harvest]); }
-      const all = await era5Windows(c.state.lat!, c.state.lon!, ws, ["precip", "tmax"], (msg) => c.setStatus(msg));
+      const hist = await loadHistory();
       if (!c.alive()) return;
-      const comp = composite(seasonTotals(all, seasonFor, 1950, lastY), seasonFor, e);
       btn.remove();
-      c.setStatus(null);
-      if (!comp) { h.body.append(note("Not enough complete seasons to compare.")); return; }
-      renderComposite(h, comp, season ? [season.year, ...(c.state.cmp ? [c.state.cmp] : [])] : []);
-      onComposite(comp);
+      if (!hist.comp) { h.body.append(note("Not enough complete seasons to compare.")); return; }
+      renderComposite(h, hist.comp, season ? [season.year, ...(c.state.cmp ? [c.state.cmp] : [])] : []);
     } catch (err) {
       btn.disabled = false;
       btn.textContent = "Retry";
       c.setStatus(`El Niño history failed: ${(err as Error).message}`, true);
     }
-  });
+  };
+  btn.addEventListener("click", run);
+  if (auto) void run();
 }
 
 const pFmt = (p: number) => (p < 0.001 ? "<0.001" : p.toFixed(2));
