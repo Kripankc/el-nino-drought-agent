@@ -16,6 +16,8 @@ import { FcRow, beeswarm, ensoArea, forecastRain, forecastTemp, keys, monthBars,
 import { CalRow, cropCalendar, metric, needBars, outlookStrip, pctBar, pctStatus, seasonLine, statusTag } from "./visuals";
 import type { State } from "../main";
 import { MIN_SHARE } from "../calc/crops";
+import { WINDOW_AFTER, WINDOW_BEFORE } from "../calc/onset";
+import { renderSowing, sowingHeadline, sowingNormals } from "./sowing";
 import { ndviSeries } from "../api/ndvi";
 import { countryCode } from "../api/geocode";
 import { LANGS, Lang, UI, langForCountry, localize } from "../i18n/advice";
@@ -101,6 +103,12 @@ export async function renderReport(c: RenderCtx) {
   }
   if (!current) root.append(el("div", { class: "banner" }, el("strong", {}, "Past date. "), "Forecasts are replaced by what was observed afterwards."));
 
+  // When to sow: 1991-2020 rainy-season onset for this crop (computed now; shown in its tab)
+  const sowFocus: Season | null = c.cal && season ? (inSeason ? season : nextSeason!) : null;
+  const sowN = c.cal ? sowingNormals(c.clim, (y) => seasonForYear(c.cal!, y)) : null;
+  const sowLine = el("div", { class: "sowline", hidden: "" });
+  root.append(sowLine);
+
   // Summary metrics (filled progressively)
   const metrics = el("div", { class: "metrics" });
   root.append(metrics);
@@ -129,7 +137,7 @@ export async function renderReport(c: RenderCtx) {
 
   // ---------------------------------------------------------------- data
   c.setStatus(S.status.season);
-  const from: Day = season ? Math.min(season.plant, asOf - 60) : asOf - 150;
+  const from: Day = season ? Math.min(season.plant - WINDOW_BEFORE - 1, asOf - 60) : asOf - 150;
   const to: Day = current ? last : Math.min(last, Math.max(season?.harvest ?? D, D + 214, est && !inSeason && nextSeason ? nextSeason.harvest : D));
   const obs = (await era5Daily(c.state.lat!, c.state.lon!, from, to, ["precip", "tmax", "tmin", "et0", "rh", "sm"], (m) => c.setStatus(m))).data;
   if (!c.alive()) return;
@@ -141,9 +149,9 @@ export async function renderReport(c: RenderCtx) {
   }
 
   // ---------------------------------------------------------------- tabs
-  const labels = current ? ["Season", "15 days", "Outlook", "El Niño"] : ["Season", "Afterwards", "El Niño"];
+  const labels = current ? ["Season", "When to sow", "15 days", "Outlook", "El Niño"] : ["Season", "When to sow", "Afterwards", "El Niño"];
   const panels = tabs(c.details, labels);
-  const [tSeason, tNext, tOutlook] = panels;
+  const [tSeason, tSow, tNext, tOutlook] = panels;
   const tEnso = panels[panels.length - 1];
 
   // Season tab
@@ -263,13 +271,37 @@ export async function renderReport(c: RenderCtx) {
       const ss = seasonForH(yy);
       // 1991-2020 seasons are already in the climatology when there is a crop calendar
       if (c.cal && ss.plant >= lo && ss.harvest <= hi) continue;
-      ws.push([ss.plant, ss.harvest]);
+      // includes the 60 days before sowing, for the rainy-season onset
+      ws.push(c.cal ? [ss.plant - WINDOW_BEFORE - 1, Math.max(ss.harvest, ss.plant + WINDOW_AFTER + 33)] : [ss.plant, ss.harvest]);
     }
     const got = await era5Windows(c.state.lat!, c.state.lon!, ws, ["precip", "tmax"], (msg) => c.setStatus(msg));
     const all = c.cal ? mergeDaily([c.clim, got]) : got;
     c.setStatus(null);
     return { all, lastY, comp: composite(seasonTotals(all, seasonForH, 1950, lastY), seasonForH, c.enso!) };
   })().catch((err) => { histP = null; throw err; }));
+
+  // When to sow tab
+  if (sowN && sowFocus && c.cal) {
+    renderSowing({
+      tab: tSow, normals: sowN, focus: sowFocus, seasonFor: seasonForH, obs,
+      until: current ? last : Math.min(last, sowFocus.plant + WINDOW_AFTER + 33),
+      current, irrigated: c.cropKey?.endsWith("_ir") ?? false, cropLabel,
+      loadHistory, autoHistory: !!est, alive: c.alive,
+    });
+    // One line in the side panel when sowing is near
+    const head = sowingHeadline(sowN, sowFocus);
+    if (current && !inSeason && head && sowFocus.plant - asOf <= 60) {
+      const go = el("button", { class: "linkbtn", type: "button" }, "When to sow →");
+      go.addEventListener("click", () => {
+        [...c.details.querySelectorAll<HTMLButtonElement>(".tabs button")].find((b) => b.textContent === "When to sow")?.click();
+        c.details.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      sowLine.hidden = false;
+      sowLine.append(el("span", {}, head, ". "), go);
+    }
+  } else {
+    section(tSow, "When to sow").body.append(note("Choose a place with a crop calendar to see when the rains usually start for sowing."));
+  }
 
   // El Nino tab
   renderEnso(tEnso, c, D, current, season, loadHistory, !!est);
