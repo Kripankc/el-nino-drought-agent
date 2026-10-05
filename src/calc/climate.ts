@@ -262,3 +262,35 @@ export function doyPercentile(clim: Daily, v: Exclude<Vars, "precip">, day: Day,
   });
   return percentileRank(finite(sample), value);
 }
+
+/**
+ * Rain totals and hot-day counts over the same calendar dates [from, to] in each
+ * 1991-2020 year (years with any missing day are skipped). Used to put a 15-day
+ * forecast in context.
+ */
+export function sameDatesNormal(clim: Daily, from: Day, to: Day, thr: number | null): { rain: number[]; hot: number[] } {
+  const ix = indexOf(clim);
+  const y0 = ymd(from).y;
+  const rain: number[] = [];
+  const hot: number[] = [];
+  for (let y = CLIM_START; y <= CLIM_END; y++) {
+    const shift = (d: Day) => {
+      const { m, d: dd } = ymd(d);
+      const yy = y + (ymd(d).y - y0);
+      return Math.round(Date.UTC(yy, m - 1, Math.min(dd, daysInMonth(yy, m))) / 86_400_000);
+    };
+    const a = shift(from);
+    const n = to - from + 1;
+    let r = 0; let h = 0; let ok = true;
+    for (let k = 0; k < n; k++) {
+      const i = ix.get(a + k);
+      const p = i === undefined ? null : clim.precip[i];
+      const t = i === undefined ? null : clim.tmax[i];
+      if (p == null || (thr != null && t == null)) { ok = false; break; }
+      r += p;
+      if (thr != null && t! > thr) h++;
+    }
+    if (ok && ymd(a + n - 1).y <= CLIM_END) { rain.push(r); hot.push(h); }
+  }
+  return { rain, hot };
+}

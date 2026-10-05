@@ -42,7 +42,8 @@ export interface ClimPlan {
  *    rain-since-sowing band, temperature band and hot-day counts;
  *  - the 90 days before the view date (+/- 8), for soil/air bands and percentiles
  *    and, without a crop calendar, recent rain and temperature;
- *  - for a past date, the following ~7 full months, for "what happened next".
+ *  - for a past date, the following ~7 full months, for "what happened next";
+ *  - for the current date, the next ~3 weeks of each reference year, for the forecast normal.
  */
 export function planClimatology(cal: Calendar | null, asOf: Day, past: boolean): ClimPlan {
   const rainHeat: [Day, Day][] = [];
@@ -55,6 +56,10 @@ export function planClimatology(cal: Calendar | null, asOf: Day, past: boolean):
     rainHeat.push(...everyYear([asOf - 128, asOf + 8]));
   }
   if (past) rainHeat.push(...everyYear([monthStart(asOf) - 8, monthEnd(asOf + 214) + 8]));
+  // In current mode, rain and heat for the next ~3 weeks of each reference year,
+  // so the 15-day forecast can be compared with the same dates in 1991-2020.
+  // Inside a crop season these days are already covered and merge away.
+  if (!past) rainHeat.push(...everyYear([asOf, asOf + 24]));
   const soilAir = everyYear([asOf - 97, asOf + 8]);
   const lo = Math.round(Date.UTC(CLIM_START, 0, 1) / MS);
   const hi = Math.round(Date.UTC(CLIM_END, 11, 31) / MS);
