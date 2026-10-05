@@ -184,9 +184,9 @@ export function waterBalance(d: Daily, season: Season, p: CropParams, until: Day
 }
 
 // ---------------------------------------------------------- season totals
-export interface SeasonTotal { year: number; rain: number; tmean: number }
+export interface SeasonTotal { year: number; rain: number; tmax: number }
 
-/** Total rainfall and mean of (Tmax+Tmin)/2 for every complete season in `d`. */
+/** Total rainfall and mean daily maximum temperature for every complete season in `d`. */
 export function seasonTotals(d: Daily, seasonFor: (y: number) => Season, y0: number, y1: number): SeasonTotal[] {
   const ix = indexOf(d);
   const out: SeasonTotal[] = [];
@@ -199,12 +199,11 @@ export function seasonTotals(d: Daily, seasonFor: (y: number) => Season, y0: num
       const i = ix.get(day);
       const pr = i === undefined ? null : d.precip[i];
       const tx = i === undefined ? null : d.tmax[i];
-      const tn = i === undefined ? null : d.tmin[i];
-      if (pr == null || tx == null || tn == null) { complete = false; break; }
+      if (pr == null || tx == null) { complete = false; break; }
       rain += pr;
-      temps.push((tx + tn) / 2);
+      temps.push(tx);
     }
-    if (complete) out.push({ year: y, rain, tmean: mean(temps) });
+    if (complete) out.push({ year: y, rain, tmax: mean(temps) });
   }
   return out;
 }
@@ -215,17 +214,19 @@ export interface MonthStat { y: number; m: number; rain: number; normal: number;
 /** Monthly rainfall for the months fully inside [from, to], vs the 1991-2020 mean for that month. */
 export function monthlyVsNormal(obs: Daily, clim: Daily, from: Day, to: Day): MonthStat[] {
   const norm = new Map<number, number[]>();
-  const tot = new Map<string, number>();
+  const tot = new Map<string, { s: number; n: number; y: number; m: number }>();
   clim.day.forEach((day, i) => {
     const { y, m } = ymd(day);
     const p = clim.precip[i];
     if (y < CLIM_START || y > CLIM_END || p == null) return;
-    tot.set(`${y}-${m}`, (tot.get(`${y}-${m}`) ?? 0) + p);
+    const r = tot.get(`${y}-${m}`) ?? { s: 0, n: 0, y, m };
+    r.s += p; r.n++;
+    tot.set(`${y}-${m}`, r);
   });
-  for (const [k, v] of tot) {
-    const m = Number(k.split("-")[1]);
-    if (!norm.has(m)) norm.set(m, []);
-    norm.get(m)!.push(v);
+  for (const r of tot.values()) {
+    if (r.n < daysInMonth(r.y, r.m)) continue; // only complete months count towards the normal
+    if (!norm.has(r.m)) norm.set(r.m, []);
+    norm.get(r.m)!.push(r.s);
   }
   const months = new Map<string, { y: number; m: number; sum: number; n: number }>();
   obs.day.forEach((day, i) => {

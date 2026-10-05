@@ -124,10 +124,21 @@ CROP_TILE = {"a": {"295_830": [21000.0, [[0, 12000.0], [1, 4000.0], [2, 3000.0],
              "c": {"147_415": {"mai_rf": [320, 120], "soy_rf": [330, 100], "wwh_ir": [130, 260]}}}
 
 
+WEIGHT = {"total": 0.0, "n": 0}
+
+
 def handler(route):
     url = route.request.url
     u = urlparse(url)
     qs = parse_qs(u.query)
+    if "open-meteo.com" in u.netloc:
+        nv = sum(len(qs.get(k, [""])[0].split(",")) for k in ("daily", "monthly") if k in qs)
+        if "start_date" in qs:
+            days = (date.fromisoformat(qs["end_date"][0]) - date.fromisoformat(qs["start_date"][0])).days + 1
+        else:
+            days = int(qs.get("forecast_days", ["14"])[0]) if "forecast_days" in qs else 183
+        WEIGHT["total"] += max(1, days / 14 * nv / 10)
+        WEIGHT["n"] += 1
     body = None
     if "archive-api.open-meteo.com" in u.netloc:
         body = daily_payload(qs)
@@ -138,7 +149,7 @@ def handler(route):
     elif "nominatim.openstreetmap.org" in u.netloc:
         body = {"address": {"town": "Mazabuka", "state": "Southern Province", "country": "Zambia"}} if "reverse" in u.path \
             else [{"display_name": "Mazabuka, Southern Province, Zambia", "lat": "-15.86", "lon": "27.76"}]
-    elif "tile.openstreetmap.org" in u.netloc:
+    elif any(h in u.netloc for h in ("tile.openstreetmap.org", "basemaps.cartocdn.com", "arcgisonline.com", "fonts.googleapis.com", "fonts.gstatic.com")):
         return route.fulfill(status=204, body="")
     elif u.path.endswith("/data/enso.json"):
         body = enso_fixture()
@@ -166,25 +177,42 @@ def main():
         with sync_playwright() as p:
             b = p.chromium.launch()
             for name, query, width in [
-                ("current-desktop", "?lat=-16.25&lon=27.65", 1100),
+                ("intro", "", 1280),
+                ("current-desktop", "?lat=-16.25&lon=27.65", 1280),
                 ("current-mobile", "?lat=-16.25&lon=27.65", 390),
-                ("past-2016", "?lat=-16.25&lon=27.65&date=2016-01-20&cmp=2023", 1100),
-                ("no-cropland", "?lat=60.5&lon=100.5", 1100),
+                ("past-2016", "?lat=-16.25&lon=27.65&date=2016-01-20&cmp=2023", 1280),
+                ("no-cropland", "?lat=60.5&lon=100.5", 1280),
             ]:
-                ctx = b.new_context(viewport={"width": width, "height": 900})
+                ctx = b.new_context(viewport={"width": width, "height": 3000 if width > 900 else 900})
                 pg = ctx.new_page()
                 pg.on("console", lambda m, n=name: errors.append(f"[{n}] {m.type}: {m.text}") if m.type in ("error",) else None)
                 pg.on("pageerror", lambda e, n=name: errors.append(f"[{n}] pageerror: {e}"))
                 pg.route("**/*", handler)
                 pg.goto(f"http://localhost:{PORT}/{query}")
-                pg.wait_for_function("document.getElementById('status').textContent.startsWith('Done') || document.getElementById('status').classList.contains('error')", timeout=60000)
-                btn = pg.get_by_text("Load El Niño history for this place")
-                if btn.count():
-                    btn.click()
-                    pg.wait_for_function("!document.body.innerText.includes('Loading…')", timeout=60000)
-                    pg.wait_for_timeout(500)
-                print(name, "status:", pg.inner_text("#status"))
-                pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
+                if query:
+                    pg.wait_for_function("document.querySelector('.tabs') && document.getElementById('status').hidden || document.getElementById('status').classList.contains('error')", timeout=60000)
+                    pg.wait_for_timeout(300)
+                    pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
+                    tab = pg.locator(".tabs button", has_text="El Niño")
+                    if tab.count():
+                        tab.click()
+                        btn = pg.get_by_text("Compare 75 years of seasons")
+                        if btn.count():
+                            btn.click()
+                            pg.wait_for_function("!document.querySelector('.cta')", timeout=90000)
+                            pg.wait_for_timeout(500)
+                        pg.screenshot(path=f"{OUT}/{name}-enso.png", full_page=True)
+                    for label in ("15 days", "Outlook", "Afterwards"):
+                        t2 = pg.locator(".tabs button", has_text=label)
+                        if t2.count():
+                            t2.click()
+                            pg.wait_for_timeout(200)
+                            pg.screenshot(path=f"{OUT}/{name}-{label.replace(' ', '')}.png", full_page=True)
+                else:
+                    pg.wait_for_timeout(800)
+                    pg.screenshot(path=f"{OUT}/{name}.png", full_page=True)
+                print(name, "status:", pg.inner_text("#status") or "(hidden)", f"| Open-Meteo weight {WEIGHT['total']:.0f} in {WEIGHT['n']} requests")
+                WEIGHT["total"] = 0.0; WEIGHT["n"] = 0
                 ctx.close()
             b.close()
     finally:
