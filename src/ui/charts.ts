@@ -215,3 +215,59 @@ export function beeswarm(width: number, pts: { year: number; phase: string; v: n
     ],
   });
 }
+
+// ------------------------------------------------------------ 15-day forecast
+export interface FcRow { day: Day; rain: number; rainHi: number; pRain: number; tmax: number; tmin: number }
+
+const fcLabel = (d: Day) => {
+  const dt = toDate(d);
+  return `${dt.toLocaleDateString("en", { weekday: "short", timeZone: "UTC" })} ${dt.getUTCDate()}`;
+};
+
+/** Daily maximum and minimum temperature (ensemble median), labelled. */
+export function forecastTemp(width: number, rows: FcRow[], heat: number | null): SVGSVGElement | HTMLElement {
+  const t = theme();
+  const every = width / rows.length >= 36 ? 1 : 2;
+  const data = rows.map((r, i) => ({ ...r, x: fcLabel(r.day), show: i % every === 0 }));
+  const lo = Math.min(...rows.map((r) => r.tmin), heat ?? 99);
+  const hi = Math.max(...rows.map((r) => r.tmax), heat ?? -99);
+  const marks: Plot.Markish[] = [];
+  if (heat != null && heat <= hi + 2) {
+    marks.push(Plot.ruleY([heat], { stroke: t.heat, strokeDasharray: "4 3", strokeOpacity: 0.8 }));
+    marks.push(Plot.text([heat], { y: (d: number) => d, frameAnchor: "right", dy: -7, text: () => `crop heat limit ${heat} °C`, fill: t.heat, textAnchor: "end", fontSize: 10.5 }));
+  }
+  for (const [key, color, dy] of [["tmax", t.heat, -11], ["tmin", t.cool, 13]] as const) {
+    marks.push(Plot.lineY(data, { x: "x", y: key, stroke: color, strokeWidth: 2, curve: "monotone-x" }));
+    marks.push(Plot.dot(data, { x: "x", y: key, r: 3.5, fill: color, stroke: t.panel, strokeWidth: 1.5 }));
+    marks.push(Plot.text(data.filter((d) => d.show), { x: "x", y: key, text: (d: any) => `${Math.round(d[key])}°`, dy, fill: t.ink2, fontSize: 11, fontWeight: 500 }));
+  }
+  marks.push(Plot.tip(data, Plot.pointerX({ x: "x", y: "tmax", title: (d: any) => `${fcLabel(d.day)}\nMax ${d.tmax.toFixed(1)} °C\nMin ${d.tmin.toFixed(1)} °C`, fill: t.panel, stroke: t.line })));
+  return Plot.plot({
+    width, height: 190, marginLeft: 34, marginRight: 8, marginTop: 22, marginBottom: 28,
+    style: { background: "transparent", color: t.ink3, fontSize: "11px", fontFamily: "inherit" },
+    x: { type: "band", domain: data.map((d) => d.x), label: null, tickSize: 0, tickPadding: 8, tickFormat: (v: string, i: number) => (i % every === 0 ? v : "") },
+    y: { domain: [Math.floor(lo - 3), Math.ceil(hi + 3)], grid: true, label: "°C", labelAnchor: "top", labelArrow: "none", tickSize: 0, ticks: 4 },
+    marks,
+  });
+}
+
+/** Daily rain (ensemble median) as bars, with the chance of a wet day (>= 1 mm) under each day. */
+export function forecastRain(width: number, rows: FcRow[]): SVGSVGElement | HTMLElement {
+  const t = theme();
+  const every = width / rows.length >= 36 ? 1 : 2;
+  const data = rows.map((r) => ({ ...r, x: fcLabel(r.day) }));
+  const top = Math.max(10, ...rows.map((r) => r.rain)) * 1.25;
+  return Plot.plot({
+    width, height: 190, marginLeft: 34, marginRight: 8, marginTop: 16, marginBottom: 48,
+    style: { background: "transparent", color: t.ink3, fontSize: "11px", fontFamily: "inherit" },
+    x: { type: "band", domain: data.map((d) => d.x), label: null, tickSize: 0, tickPadding: 8, padding: 0.25, tickFormat: (v: string, i: number) => (i % every === 0 ? v : "") },
+    y: { domain: [0, top], grid: true, label: "mm", labelAnchor: "top", labelArrow: "none", tickSize: 0, ticks: 4 },
+    marks: [
+      Plot.barY(data, { x: "x", y: "rain", fill: t.rain, rx: 3 }),
+      Plot.text(data.filter((d) => d.rain >= 0.5), { x: "x", y: "rain", text: (d: any) => (d.rain < 10 ? d.rain.toFixed(1) : String(Math.round(d.rain))), dy: -7, fill: t.ink2, fontSize: 11, fontWeight: 500 }),
+      Plot.text(data, { x: "x", text: (d: any) => `${Math.round(d.pRain * 100)}%`, frameAnchor: "bottom", dy: 36, fill: t.rain, fontSize: 10.5 }),
+      Plot.ruleY([0], { stroke: t.line }),
+      Plot.tip(data, Plot.pointerX({ x: "x", y: "rain", title: (d: any) => `${fcLabel(d.day)}\nRain ${d.rain.toFixed(1)} mm (wet case ${d.rainHi.toFixed(1)} mm)\nChance of rain ${Math.round(d.pRain * 100)}%`, fill: t.panel, stroke: t.line })),
+    ],
+  });
+}
