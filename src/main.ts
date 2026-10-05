@@ -75,15 +75,29 @@ export function setStatus(msg: string | null, isError = false) {
 const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 const map = L.map("map", { worldCopyJump: true, zoomControl: false }).setView([15, 20], 3);
 L.control.zoom({ position: "bottomright" }).addTo(map);
+// Basemaps: Esri tile services, no API key needed. If tiles keep failing,
+// fall back to the standard OpenStreetMap tiles.
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+const esriAttr = 'Tiles &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const canvas = dark ? "Dark_Gray" : "Light_Gray";
 const base = {
-  map: L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-    maxZoom: 19, subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  }),
-  sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    maxZoom: 18, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics",
-  }),
+  map: L.layerGroup([
+    L.tileLayer(`${ESRI}/Canvas/World_${canvas}_Base/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 16, attribution: esriAttr }),
+    L.tileLayer(`${ESRI}/Canvas/World_${canvas}_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 16 }),
+  ]),
+  sat: L.layerGroup([
+    L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 18, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics" }),
+    L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 18 }),
+  ]),
 };
+let tileErrors = 0;
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+});
+base.map.eachLayer((l) => (l as L.TileLayer).on("tileerror", () => {
+  if (++tileErrors === 4 && map.hasLayer(base.map)) { base.map.clearLayers(); base.map.addLayer(osm); }
+}));
+map.setMaxZoom(18);
 base.map.addTo(map);
 document.querySelectorAll<HTMLButtonElement>(".layers button").forEach((b) => b.addEventListener("click", () => {
   const k = b.dataset.layer as "map" | "sat";
