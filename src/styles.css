@@ -258,21 +258,6 @@ h1.place { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing:
 .k-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
 /* Forecast list */
-.fc-head, .fc-row { display: grid; grid-template-columns: 78px 70px 30px 1fr 34px; gap: 10px; align-items: center; }
-.fc-head { font-size: 11.5px; color: var(--ink-3); padding: 0 0 6px; border-bottom: 1px solid var(--line); }
-.fc-row { height: 38px; border-bottom: 1px solid var(--line-2); font-variant-numeric: tabular-nums; }
-.fc-row:last-child { border-bottom: 0; }
-.fc-day { font-weight: 500; white-space: nowrap; }
-.fc-day small { color: var(--ink-3); font-weight: 400; margin-left: 4px; font-size: 12px; }
-.fc-rain { display: flex; align-items: center; gap: 6px; color: var(--rain); font-weight: 500; font-size: 13px; }
-.fc-rain i { display: inline-block; height: 6px; border-radius: 3px; background: var(--rain); flex: none; }
-.fc-rain.dry { color: var(--ink-3); font-weight: 400; }
-.fc-min { color: var(--ink-3); text-align: right; }
-.fc-max { font-weight: 600; }
-.fc-max.hot { color: var(--heat); }
-.fc-track { position: relative; height: 5px; border-radius: 3px; background: var(--line-2); }
-.fc-track i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
-.fc-track b { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--heat); }
 
 /* Outlook strip */
 .ol { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
@@ -292,7 +277,7 @@ h1.place { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing:
 .var:last-child { border-bottom: 0; }
 .var-l { font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
 .var-v { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
-.var-p { margin-top: 6px; }
+.var-p { margin-top: 4px; font-size: 12.5px; color: var(--ink-3); }
 .var svg { display: block; width: 100%; height: auto; }
 
 /* ENSO */
@@ -377,11 +362,12 @@ body.doc { height: auto; }
 .tag-pre { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-3); background: var(--raised); padding: 2px 6px; border-radius: 4px; }
 
 /* Map data layers */
-.overlay-ctl { position: absolute; top: 12px; right: 12px; z-index: 500; background: var(--panel); border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); padding: 4px; max-width: 260px; }
-.overlay-ctl select { border: 0; background-color: transparent; font: inherit; font-size: 13px; font-weight: 500; color: var(--ink); padding: 4px 24px 4px 8px; height: 30px; }
+.overlay-ctl { position: absolute; top: 12px; right: 12px; z-index: 500; background: rgba(17, 19, 22, 0.92); color: #fff; border-radius: 8px; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); padding: 4px; max-width: 260px; }
+.overlay-ctl select { border: 0; background-color: transparent; font: inherit; font-size: 13px; font-weight: 500; color: #fff; padding: 4px 24px 4px 8px; height: 30px; color-scheme: dark; cursor: pointer; }
+.overlay-ctl select option { background: #16181c; color: #fff; }
 #overlay-info { padding: 4px 8px 6px; }
 .ov-legend { display: block; width: 100%; max-width: 240px; height: auto; background: #fff; border-radius: 4px; }
-.ov-src { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+.ov-src { font-size: 11px; color: rgba(255, 255, 255, 0.72); margin-top: 4px; }
 .cal-hit { cursor: pointer; }
 .cal-hit:hover { fill: color-mix(in srgb, var(--ink) 5%, transparent); }
 .recs-h select.lang { height: 30px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; padding: 0 22px 0 8px; }
