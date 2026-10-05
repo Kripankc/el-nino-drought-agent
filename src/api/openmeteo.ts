@@ -7,6 +7,7 @@ import { Daily } from "../calc/climate";
 const ARCHIVE = "https://archive-api.open-meteo.com/v1/archive";
 const ENSEMBLE = "https://ensemble-api.open-meteo.com/v1/ensemble";
 const SEASONAL = "https://seasonal-api.open-meteo.com/v1/seasonal";
+const FORECAST = "https://api.open-meteo.com/v1/forecast";
 
 /** ERA5 daily variables requested from the archive (model pinned to ERA5). */
 export const DAILY_VARS = {
@@ -221,6 +222,23 @@ export async function ensembleForecast(lat: number, lon: number, status?: Status
     },
   })).filter((x: EnsembleDay) => x.members.precip.length > 0);
   return { days, model: "ECMWF IFS 0.25° ensemble" };
+}
+
+/**
+ * Rain on the days after the last ERA5 day up to yesterday, from ECMWF IFS 0.25°
+ * short-range forecasts (Open-Meteo past_days). Preliminary: model values, not
+ * observations; replaced by ERA5 about six days later.
+ */
+export async function recentRain(lat: number, lon: number, status?: Status): Promise<{ day: Day; precip: number }[]> {
+  const params = new URLSearchParams({
+    latitude: String(snap(lat)), longitude: String(snap(lon)),
+    daily: "precipitation_sum", models: "ecmwf_ifs025", past_days: "10", forecast_days: "1", timezone: "GMT",
+  });
+  const j = await cachedJson(`${FORECAST}?${params}`, 3 * 3_600_000, status);
+  const today = todayDay();
+  const after = lastEra5Day();
+  return (j.daily.time as string[]).map((t, i) => ({ day: toDay(t), precip: j.daily.precipitation_sum[i] as number | null }))
+    .filter((x): x is { day: Day; precip: number } => x.day > after && x.day < today && typeof x.precip === "number");
 }
 
 export interface SeasonalMonth { month: string; precipMm: number | null; precipAnomMm: number | null; tAnom: number | null; precipPct: number | null }

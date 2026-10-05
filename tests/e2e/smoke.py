@@ -144,6 +144,10 @@ def handler(route):
         body = daily_payload(qs)
     elif "ensemble-api.open-meteo.com" in u.netloc:
         body = ensemble_payload()
+    elif u.netloc == "api.open-meteo.com":
+        t = date.today()
+        days = [t - timedelta(days=k) for k in range(10, -1, -1)]
+        body = {"daily": {"time": [d.isoformat() for d in days], "precipitation_sum": [round(3 + 2 * math.sin(k), 1) for k in range(len(days))]}}
     elif "seasonal-api.open-meteo.com" in u.netloc:
         body = seasonal_payload()
     elif "nominatim.openstreetmap.org" in u.netloc:
