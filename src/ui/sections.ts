@@ -240,7 +240,8 @@ export async function renderReport(c: RenderCtx) {
       plan: p?.stages ? stagePlan(p.stages, target.length) : null,
       heatC: p?.heat_c ?? null, heatRef: p?.heat_ref ?? null,
       rainPercentile: inSeason ? rainPct : null, gapMm: inSeason ? gapMm : null,
-      smPercentile: smPct.pct, forecast: fc, seasonal: seas, fc15,
+      smPercentile: smPct.pct, forecast: fc, seasonal: seas,
+      fc15: fc15 && fc15.normal != null && fc15.percentile != null ? { total: fc15.total, normal: fc15.normal, percentile: fc15.percentile } : null,
       enso: est ? { ...est, impact, loading: impactLoading } : null, references: c.params.references,
     });
     renderAdvice(recs, items, lang);

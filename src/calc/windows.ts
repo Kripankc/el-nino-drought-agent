@@ -1,7 +1,7 @@
 // Plans which short date windows of the 1991-2020 record are needed for a view,
 // so the browser downloads only those instead of 30 full years.
 import { Day, daysInMonth, ymd } from "../lib/dates";
-import { Calendar, seasonForYear } from "./season";
+import { Calendar, seasonForYear, seasonStatus } from "./season";
 import { CLIM_END, CLIM_START } from "./climate";
 
 const MS = 86_400_000;
@@ -59,7 +59,10 @@ export function planClimatology(cal: Calendar | null, asOf: Day, past: boolean):
   // In current mode, rain and heat for the next ~3 weeks of each reference year,
   // so the 15-day forecast can be compared with the same dates in 1991-2020.
   // Inside a crop season these days are already covered and merge away.
-  if (!past) rainHeat.push(...everyYear([asOf, asOf + 24]));
+  // Off season, these are needed only when sowing is near (each extra window is
+  // one more request against the hourly limit).
+  const near = !cal || (() => { const st = seasonStatus(cal, asOf); return st.kind === "in" || st.next.plant - asOf <= 45; })();
+  if (!past && near) rainHeat.push(...everyYear([asOf, asOf + 24]));
   const soilAir = everyYear([asOf - 97, asOf + 8]);
   const lo = Math.round(Date.UTC(CLIM_START, 0, 1) / MS);
   const hi = Math.round(Date.UTC(CLIM_END, 11, 31) / MS);
