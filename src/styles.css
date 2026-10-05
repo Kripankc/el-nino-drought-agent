@@ -92,24 +92,47 @@ button, input, select { font: inherit; color: inherit; }
 .toplink { color: var(--ink-2); font-weight: 500; margin-left: auto; }
 
 /* App layout ------------------------------------------------------------ */
-.app { display: grid; grid-template-columns: 480px 1fr; height: calc(100vh - 56px); }
-.panel { overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); position: relative; }
-.mapwrap { position: relative; }
+/* Left: summary panel. Right: map on top, details (tabs and charts) below.
+   Both splits are draggable; sizes live in --left and --map. */
+.app {
+  --left: 42%; --map: 46%;
+  display: grid; grid-template-columns: var(--left) 7px minmax(0, 1fr);
+  height: calc(100vh - 56px); height: calc(100dvh - 56px);
+}
+.panel { overflow-y: auto; background: var(--panel); position: relative; min-width: 0; }
+.right { display: grid; grid-template-rows: var(--map) 7px minmax(0, 1fr); min-height: 0; min-width: 0; }
+.mapwrap { position: relative; min-height: 0; }
 #map { position: absolute; inset: 0; background: var(--bg); }
+.details { overflow-y: auto; background: var(--panel); padding: 0 24px 32px; min-height: 0; position: relative; }
+.details > .tabs { margin-top: 0; }
+.details.loading { opacity: 0.5; pointer-events: none; }
+.details-empty { height: 100%; display: grid; place-items: center; text-align: center; color: var(--ink-3); padding: 24px; max-width: 420px; margin: 0 auto; }
+
+.gutter { background: var(--line); position: relative; z-index: 5; touch-action: none; outline: none; transition: background 0.15s; }
+.gutter:hover, .gutter:focus-visible, body.resizing-x .gutter-v, body.resizing-y .gutter-h { background: var(--accent); }
+.gutter-v { cursor: col-resize; }
+.gutter-h { cursor: row-resize; }
+.gutter::after { content: ""; position: absolute; border-radius: 2px; background: var(--ink-3); opacity: 0.55; }
+.gutter-v::after { width: 3px; height: 28px; left: 2px; top: calc(50% - 14px); }
+.gutter-h::after { height: 3px; width: 28px; top: 2px; left: calc(50% - 14px); }
+body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select: none; }
+body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
+
 .layers {
   position: absolute; top: 12px; right: 12px; z-index: 500; display: flex; padding: 3px; gap: 2px;
   background: var(--panel); border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 .layers button { border: 0; background: none; padding: 5px 10px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
 .layers button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
 @media (max-width: 900px) {
-  #report { padding: 18px 16px 32px; }
-  .fields { grid-template-columns: 1fr 120px; }
-  .tabs { margin: 28px -16px 0; padding: 0 16px; }
-  .status { padding: 8px 16px; }
-  .app { display: flex; flex-direction: column-reverse; height: auto; }
-  .mapwrap { height: 42vh; min-height: 260px; }
-  .panel { overflow: visible; border-right: 0; }
+  .app { display: flex; flex-direction: column; height: auto; }
+  .right { display: contents; }
+  .mapwrap { order: -1; height: 42vh; min-height: 260px; }
+  .gutter { display: none; }
+  .panel { overflow: visible; }
+  .details { overflow: visible; padding: 0 16px 32px; }
+  .details-empty { display: none; }
   .topbar { gap: 10px; padding: 0 12px; }
   .brand span { display: none; }
   .search { margin-left: 0; }
@@ -181,7 +204,7 @@ h1.place { font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing:
 
 /* Tabs */
 .tabs {
-  position: sticky; top: 0; z-index: 15; display: flex; gap: 22px; margin: 28px -24px 0; padding: 0 24px;
+  position: sticky; top: 0; z-index: 15; display: flex; gap: 22px; margin: 0 -24px; padding: 0 24px;
   background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none;
 }
 .tabs::-webkit-scrollbar { display: none; }
@@ -327,4 +350,8 @@ body.doc { height: auto; }
   .metric { padding: 12px 12px 10px; }
   .m-value { font-size: 23px; }
   .var { grid-template-columns: 1fr 120px; gap: 12px; }
+  #report { padding: 18px 16px 12px; }
+  .status { padding: 8px 16px; }
+  .tabs { margin: 8px -16px 0; padding: 0 16px; }
 }
+.mapwrap { overflow: hidden; }

@@ -57,6 +57,8 @@ const results = $<HTMLUListElement>("results");
 const statusEl = $<HTMLDivElement>("status");
 const report = $<HTMLElement>("report");
 const panel = $<HTMLElement>("panel");
+const details = $<HTMLElement>("details");
+const app = $<HTMLElement>("app");
 
 // Crop and comparison selects live in the report header; main.ts owns them.
 const cropSel = el("select", { id: "crop", disabled: "" });
@@ -75,15 +77,29 @@ export function setStatus(msg: string | null, isError = false) {
 const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
 const map = L.map("map", { worldCopyJump: true, zoomControl: false }).setView([15, 20], 3);
 L.control.zoom({ position: "bottomright" }).addTo(map);
+// Basemaps: Esri tile services, no API key needed. If tiles keep failing,
+// fall back to the standard OpenStreetMap tiles.
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+const esriAttr = 'Tiles &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const canvas = dark ? "Dark_Gray" : "Light_Gray";
 const base = {
-  map: L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
-    maxZoom: 19, subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  }),
-  sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    maxZoom: 18, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics",
-  }),
+  map: L.layerGroup([
+    L.tileLayer(`${ESRI}/Canvas/World_${canvas}_Base/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 16, attribution: esriAttr }),
+    L.tileLayer(`${ESRI}/Canvas/World_${canvas}_Reference/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 16 }),
+  ]),
+  sat: L.layerGroup([
+    L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 18, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics" }),
+    L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, { maxZoom: 18 }),
+  ]),
 };
+let tileErrors = 0;
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+});
+base.map.eachLayer((l) => (l as L.TileLayer).on("tileerror", () => {
+  if (++tileErrors === 4 && map.hasLayer(base.map)) { base.map.clearLayers(); base.map.addLayer(osm); }
+}));
+map.setMaxZoom(18);
 base.map.addTo(map);
 document.querySelectorAll<HTMLButtonElement>(".layers button").forEach((b) => b.addEventListener("click", () => {
   const k = b.dataset.layer as "map" | "sat";
@@ -218,6 +234,8 @@ function renderIntro() {
     list.append(el("li", {}, b));
   }
   const feat = (ico: string, t: string, d: string) => el("div", { class: "feature" }, icon(ico, 18), el("div", {}, el("b", {}, t), d));
+  details.replaceChildren(el("div", { class: "details-empty" },
+    el("p", {}, "Charts for the season, the next 15 days, the 7-month outlook and El Niño history appear here once you pick a place.")));
   report.replaceChildren(el("div", { class: "intro" },
     el("div", { class: "eyebrow" }, "Open climate data for farmers"),
     el("h1", {}, "Rain, heat and El Niño for any farm"),
@@ -241,6 +259,7 @@ async function load() {
   writeUrl();
   dateIn.value = fromDay(state.date);
   report.classList.add("loading");
+  details.classList.add("loading");
   const lat = state.lat;
   const lon = state.lon;
   try {
@@ -277,18 +296,77 @@ async function load() {
     else { cmpSel.replaceChildren(el("option", { value: "" }, "None")); cmpSel.disabled = true; }
 
     report.classList.remove("loading");
+    details.classList.remove("loading");
     await renderReport({
       root: report, state, params, enso, local: localCrops, cropsLoaded: local != null,
-      cropKey, cal, clim: clim.data, grid: clim.grid, fields, alive,
+      cropKey, cal, clim: clim.data, grid: clim.grid, fields, details, alive,
       setStatus: (m, err) => { if (alive()) setStatus(m, err); },
     });
   } catch (err) {
     console.error(err);
     if (alive()) setStatus(`Could not load data: ${(err as Error).message}`, true);
   } finally {
-    if (alive()) report.classList.remove("loading");
+    if (alive()) { report.classList.remove("loading"); details.classList.remove("loading"); }
   }
 }
+
+// ------------------------------------------------------------------ resizable layout
+// Two drag handles: between the side panel and the right column, and between
+// the map and the details below it. Sizes are kept per browser.
+const SIZE_KEY = "ensowatch.layout";
+function loadSizes(): { left: number; map: number } {
+  try { return { left: 0.42, map: 0.46, ...JSON.parse(localStorage.getItem(SIZE_KEY) ?? "{}") }; }
+  catch { return { left: 0.42, map: 0.46 }; }
+}
+const sizes = loadSizes();
+function applySizes() {
+  app.style.setProperty("--left", `${(sizes.left * 100).toFixed(2)}%`);
+  app.style.setProperty("--map", `${(sizes.map * 100).toFixed(2)}%`);
+}
+let settle: number | undefined;
+function afterResize() {
+  map.invalidateSize();
+  clearTimeout(settle);
+  settle = window.setTimeout(() => {
+    window.dispatchEvent(new Event("resize")); // charts re-draw at their new width
+    try { localStorage.setItem(SIZE_KEY, JSON.stringify(sizes)); } catch { /* private mode */ }
+  }, 120);
+}
+function dragHandle(id: string, axis: "x" | "y") {
+  const g = $<HTMLElement>(id);
+  const box = () => (axis === "x" ? app : $<HTMLElement>("right")).getBoundingClientRect();
+  const set = (frac: number) => {
+    if (axis === "x") sizes.left = Math.min(0.7, Math.max(0.25, frac));
+    else sizes.map = Math.min(0.85, Math.max(0.15, frac));
+    applySizes();
+    afterResize();
+  };
+  g.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    g.setPointerCapture(e.pointerId);
+    document.body.classList.add(axis === "x" ? "resizing-x" : "resizing-y");
+    const move = (ev: PointerEvent) => {
+      const b = box();
+      set(axis === "x" ? (ev.clientX - b.left) / b.width : (ev.clientY - b.top) / b.height);
+    };
+    const up = () => {
+      g.removeEventListener("pointermove", move);
+      document.body.classList.remove("resizing-x", "resizing-y");
+    };
+    g.addEventListener("pointermove", move);
+    g.addEventListener("pointerup", up, { once: true });
+  });
+  g.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 0.1 : 0.03;
+    const cur = axis === "x" ? sizes.left : sizes.map;
+    if ((axis === "x" && e.key === "ArrowLeft") || (axis === "y" && e.key === "ArrowUp")) { set(cur - step); e.preventDefault(); }
+    if ((axis === "x" && e.key === "ArrowRight") || (axis === "y" && e.key === "ArrowDown")) { set(cur + step); e.preventDefault(); }
+  });
+  g.addEventListener("dblclick", () => set(axis === "x" ? 0.42 : 0.46));
+}
+applySizes();
+dragHandle("gutter-v", "x");
+dragHandle("gutter-h", "y");
 
 // ------------------------------------------------------------------ boot
 readUrl();
