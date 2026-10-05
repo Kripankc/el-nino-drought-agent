@@ -371,3 +371,5 @@ body.doc { height: auto; }
 .cal-hit { cursor: pointer; }
 .cal-hit:hover { fill: color-mix(in srgb, var(--ink) 5%, transparent); }
 .recs-h select.lang { height: 30px; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; padding: 0 22px 0 8px; }
+.sowline { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--sprout) 10%, transparent); font-size: 13px; color: var(--ink); }
+.sowline .linkbtn { margin: 0; font-size: 13px; }

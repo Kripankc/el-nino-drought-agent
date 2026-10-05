@@ -3,6 +3,7 @@
 import { Day, daysInMonth, ymd } from "../lib/dates";
 import { Calendar, seasonForYear, seasonStatus } from "./season";
 import { CLIM_END, CLIM_START } from "./climate";
+import { WINDOW_AFTER, WINDOW_BEFORE } from "./onset";
 
 const MS = 86_400_000;
 
@@ -50,7 +51,8 @@ export function planClimatology(cal: Calendar | null, asOf: Day, past: boolean):
   if (cal) {
     for (let y = CLIM_START - 1; y <= CLIM_END; y++) {
       const s = seasonForYear(cal, y);
-      rainHeat.push([s.plant - 8, s.harvest + 8]);
+      // from 61 days before sowing (rainy-season onset search) to the harvest
+      rainHeat.push([s.plant - WINDOW_BEFORE - 1, Math.max(s.harvest + 8, s.plant + WINDOW_AFTER + 33)]);
     }
   } else {
     rainHeat.push(...everyYear([asOf - 128, asOf + 8]));
